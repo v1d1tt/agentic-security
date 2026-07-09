@@ -22,8 +22,8 @@ A 2x2 behavioral taxonomy crossing two dimensions per failure instance:
 | **Resisted**     | Principled Resistance     | Blind Resistance          |
 | **Complied**     | Alignment Failure         | Detection Failure         |
 
-This extends WASP's (NeurIPS 2025) finding of "security by incompetence" — where models
-resist attacks not by design but because they lack capability — from an aggregate
+This extends WASP's (NeurIPS 2025) finding of "security by incompetence" , where models
+resist attacks not by design but because they lack capability  from an aggregate
 statistic down to the instance level, and crosses ASB's (2025) separately-reported
 refusal rate and ASR into a single per-instance classification neither benchmark performs.
 
