@@ -1,0 +1,2 @@
+-e git+https://github.com/ethz-spylab/agentdojo.git@089ed468cf3ed0322acc66b0211f26d9d90dbf60#egg=agentdojo
+openai==2.44.0
