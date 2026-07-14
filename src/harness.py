@@ -90,6 +90,35 @@ def _messages_to_serializable(messages) -> list:
     return serializable
 
 
+def _run_ended_cleanly(messages) -> bool:
+    """
+    Checks whether the run ended in a genuine conclusion rather than a
+    silent parser/format failure.
+
+    A run is considered INVALID (not clean) if the last message is from
+    the assistant, has no tool_calls, and does not contain a genuine
+    <answer>...</answer> conclusion. This pattern shows up when a model
+    attempts an action or states a plan in a format the parser can't
+    recognize, causing the pipeline to end the conversation without
+    ever executing anything.
+    """
+    if not messages:
+        return False
+
+    last = messages[-1]
+    if last.get("role") != "assistant":
+        return True
+
+    if last.get("tool_calls"):
+        return True
+
+    content_blocks = last.get("content") or []
+    text = " ".join(
+        block.get("content", "") for block in content_blocks if isinstance(block, dict)
+    )
+    return "<answer>" in text and "</answer>" in text
+
+
 def run_scenario(
     model_name: str,
     user_task_id: str,
@@ -135,6 +164,8 @@ def run_scenario(
         injection_task, model_output or [], pre_environment, post_environment, functions_stack_trace
     )
 
+    ended_cleanly = _run_ended_cleanly(messages)
+
     result = {
         "model_name": model_name,
         "user_task_id": user_task_id,
@@ -142,6 +173,7 @@ def run_scenario(
         "messages": _messages_to_serializable(messages),
         "utility": utility,
         "security": security,
+        "ended_cleanly": ended_cleanly,
     }
 
     if save:
