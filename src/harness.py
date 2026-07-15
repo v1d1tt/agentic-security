@@ -14,7 +14,15 @@ from pathlib import Path
 import openai
 from agentdojo.agent_pipeline.agent_pipeline import AgentPipeline
 from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
-from agentdojo.agent_pipeline.llms.prompting_llm import PromptingLLM
+from agentdojo.agent_pipeline.llms.prompting_llm import (
+    PromptingLLM,
+    InvalidModelOutputError,
+    _message_to_together,
+)
+from agentdojo.agent_pipeline.llms.openai_llm import chat_completion_request, _message_to_openai
+from agentdojo.ast_utils import ASTParsingError
+from agentdojo.functions_runtime import EmptyEnv
+from agentdojo.types import ChatAssistantMessage, ChatSystemMessage, ChatUserMessage, get_text_content_as_str, text_content_block_from_string
 from agentdojo.agent_pipeline.tool_execution import (
     ToolsExecutionLoop,
     ToolsExecutor,
@@ -60,9 +68,104 @@ tags. Never output an action description or a raw JSON object outside of these t
 """
 
 
-def _build_pipeline(model_name: str, system_prompt: str) -> AgentPipeline:
+class ReasoningPromptingLLM(PromptingLLM):
+    """
+    Extends PromptingLLM to capture the separate `reasoning` field some
+    APIs (e.g. Ollama serving DeepSeek-R1 distills) return alongside
+    `content`. AgentDojo's own query() only ever reads `.content`, silently
+    discarding `.reasoning` - this override merges it in as a visible
+    <think>...</think> block before any parsing happens, so it survives
+    into the saved trace and is available to the recognition classifier.
+
+    This duplicates BasePromptingLLM.query() with one deliberate change
+    (marked below). If the AgentDojo version pinned in requirements.txt
+    changes, this override should be re-checked against the upstream method.
+    """
+
+    def query(
+        self,
+        query,
+        runtime,
+        env=EmptyEnv(),
+        messages=(),
+        extra_args={},
+    ):
+        adapted_messages = [
+            self._tool_message_to_user_message(message) if message["role"] == "tool" else message
+            for message in messages
+        ]
+        openai_messages = [_message_to_together(message, self.model) for message in adapted_messages]
+        system_message, other_messages = self._get_system_message(messages)
+        system_message = self._make_tools_prompt(system_message, list(runtime.functions.values()))
+        if system_message is not None:
+            converted_system_message = ChatSystemMessage(
+                role="system",
+                content=get_text_content_as_str(system_message["content"] or []),
+            )
+            openai_messages = [converted_system_message, *openai_messages]
+
+        completion = chat_completion_request(self.client, self.model, openai_messages, [], None, self.temperature)
+
+        # --- start of deliberate change vs BasePromptingLLM.query() ---
+        raw_message = completion.choices[0].message
+        reasoning_text = getattr(raw_message, "reasoning", None) or ""
+        visible_content = raw_message.content or ""
+        if reasoning_text:
+            merged_content = f"<think>{reasoning_text}</think>\n{visible_content}"
+        else:
+            merged_content = visible_content
+        # --- end of deliberate change ---
+
+        output = ChatAssistantMessage(
+            role="assistant",
+            content=[text_content_block_from_string(merged_content)],
+            tool_calls=[],
+        )
+
+        if len(runtime.functions) == 0 or "<function-call>" not in merged_content:
+            return query, runtime, env, [*messages, output], extra_args
+
+        for _ in range(self._MAX_ATTEMPTS):
+            try:
+                # _parse_model_output reads message.content directly, so we patch
+                # a lightweight stand-in object carrying our merged content.
+                class _MergedMessage:
+                    def __init__(self, content):
+                        self.content = content
+
+                output = self._parse_model_output(_MergedMessage(merged_content))
+                break
+            except (InvalidModelOutputError, ASTParsingError) as e:
+                error_message = ChatUserMessage(
+                    role="user", content=[text_content_block_from_string(f"Invalid function calling output: {e!s}")]
+                )
+                completion = chat_completion_request(
+                    self.client,
+                    self.model,
+                    [*openai_messages, _message_to_openai(error_message, self.model)],
+                    [],
+                    None,
+                    self.temperature,
+                )
+                raw_message = completion.choices[0].message
+                reasoning_text = getattr(raw_message, "reasoning", None) or ""
+                visible_content = raw_message.content or ""
+                merged_content = (
+                    f"<think>{reasoning_text}</think>\n{visible_content}" if reasoning_text else visible_content
+                )
+
+        return query, runtime, env, [*messages, output], extra_args
+
+
+def _build_pipeline(model_name: str, system_prompt: str, temperature: float = 0.0) -> AgentPipeline:
     client = openai.OpenAI(api_key="EMPTY", base_url="http://localhost:11434/v1")
-    llm = PromptingLLM(client, model_name)
+    # Reasoning models (e.g. deepseek-r1 distills) return a separate
+    # `reasoning` field that AgentDojo's own PromptingLLM silently drops.
+    # Route these through ReasoningPromptingLLM to preserve it.
+    if model_name.startswith("deepseek-r1"):
+        llm = ReasoningPromptingLLM(client, model_name, temperature=temperature)
+    else:
+        llm = PromptingLLM(client, model_name, temperature=temperature)
 
     system_message_component = SystemMessage(system_prompt)
     init_query_component = InitQuery()
@@ -165,6 +268,7 @@ def run_scenario(
     system_prompt: str = SYSTEM_PROMPT,
     suite_name: str = "banking",
     save: bool = True,
+    temperature: float = 0.0,
 ) -> dict:
     suites = get_suites("v1")
     suite = suites[suite_name]
@@ -179,7 +283,7 @@ def run_scenario(
     environment = suite.load_and_inject_default_environment(injections)
     task_environment = user_task.init_environment(environment)
 
-    pipeline = _build_pipeline(model_name, system_prompt)
+    pipeline = _build_pipeline(model_name, system_prompt, temperature=temperature)
     runtime = FunctionsRuntime(suite.tools)
 
     pre_environment = task_environment.model_copy(deep=True)
