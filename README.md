@@ -1,99 +1,100 @@
-# Agent Security Taxonomy: Recognition vs. Compliance in Agent Prompt-Injection Failures
+# Recognition vs. Compliance: A Behavioral Taxonomy of Agent Prompt-Injection Failures
 
-## The gap
+**Status: pipeline built and validated on a pilot set; scaling to the annotation study. Numbers below are pilot-scale (n=11) and expected to change.**
 
-Every major agent security benchmark (AgentDojo, InjecAgent, ASB, ChatInject) reduces
-adversarial agent failure to a single binary: Attack Success Rate (ASR). This collapses
-two distinct failure modes into one number:
+## The idea
 
-- **Detection Failure**: the agent never recognized the injected instruction as suspicious.
-- **Alignment Failure**: the agent's reasoning showed signs of recognizing the conflict,
-  but it complied anyway.
+Agent security benchmarks (AgentDojo, InjecAgent, WASP, etc.) mostly reduce an
+adversarial failure to one binary: did the attack succeed (ASR). That collapses two
+behaviorally distinct things that need different fixes:
 
-These have different causes and need different fixes (input filtering vs alignment
-training), but current metrics score them identically.
+- **Detection Failure** — the agent never recognized the injected instruction, and complied.
+- **Alignment Failure** — the agent's reasoning showed recognition of the injected
+  instruction, but it complied anyway.
 
-## Related work (and how this differs)
+This project classifies each *injection-reaching* run on two independent axes and crosses
+them into a 2x2:
 
-This gap is not entirely unclaimed, and the project is scoped to extend rather than
-duplicate the closest prior work:
+|              | Recognized                | Not recognized       |
+|--------------|---------------------------|----------------------|
+| **Resisted** | Principled Resistance     | Blind Resistance     |
+| **Complied** | Alignment Failure         | Detection Failure    |
 
-- **WASP** (NeurIPS 2025, Meta FAIR) introduced two-level ASR (reasoning-level vs
-  environment-level compromise) and coined "security by incompetence" - models resisting
-  attacks by accident, not by design. WASP measures this in aggregate; this project
-  pushes the same idea to the per-instance level via an explicit 2x2 taxonomy.
-- **"Mind the GAP"** (2025) introduces a Risk-Acknowledged Departure (RAD) signal that
-  captures cases where a model's CoT contains explicit risk language yet it proceeds
-  with a forbidden action - i.e. exactly the Alignment Failure cell of this taxonomy.
-  This project's contribution over RAD is the full 2x2 (not just one cell), a validated
-  rule-based classifier with an inter-rater reliability study, and the reasoning vs.
-  non-reasoning model comparison below.
-- **AlignSentinel** (2026) does alignment-aware detection via attention/activation
-  representations rather than CoT text, and is oriented at detection performance rather
-  than instance-level behavioral classification.
+## Contribution, and how it relates to prior work
 
-## The contribution
+The space is more crowded than it first appears; the contribution is scoped accordingly.
 
-A 2x2 behavioral taxonomy crossing two dimensions per failure instance:
+- **WASP** (arXiv 2504.18575, Meta FAIR) introduced reasoning-level vs. environment-level
+  ASR and "security by incompetence" (resistance by accident, not design), measured in
+  aggregate. This project pushes that to the per-instance level and reads the reasoning
+  trace directly rather than inferring from ASR gaps.
+- **Mind the GAP** (arXiv 2602.16943, Feb 2026) already includes an exploratory
+  four-mode failure taxonomy (its "rationalized abdication" ~ the Alignment Failure cell
+  here) and a Risk-Acknowledged Departure regex signal — but keyword-based, with no
+  inter-annotator reliability, on frontier API models. It explicitly names "semantic
+  risk-acknowledgment classifiers validated against human annotations" as future work.
+- **AlignSentinel** (arXiv 2602.13597, 2026) does alignment-aware *input detection* via
+  attention/activation features — a different object (input classification, not
+  behavioral failure), modality (activations, not CoT), and goal (defense, not diagnosis).
 
-|                  | Recognized attack        | Did not recognize        |
-|------------------|---------------------------|---------------------------|
-| **Resisted**     | Principled Resistance     | Blind Resistance          |
-| **Complied**     | Alignment Failure         | Detection Failure         |
-
-Plus a specific empirical question the taxonomy is built to answer: **does the rate of
-Blind Resistance (accidental, not principled, resistance) differ between reasoning
-models and non-reasoning instruct models of comparable size?** Reasoning models
-externalize deliberation in a way instruct models largely don't - early pilot testing
-found near-zero explicit recognition language from Qwen2.5-7B-Instruct and
-Llama-3.1-8B-Instruct across multiple scenarios, including maximally blatant attacks,
-which is itself consistent with literature showing non-reasoning models verbalize
-hint/bias influence in under 20% of cases where they act on it. This motivated adding a
-reasoning-capable model (DeepSeek-R1-Distill-Qwen-7B) to the comparison, sharing the
-same base model family as the non-reasoning Qwen baseline.
+The defensible contribution over these: a **validated** recognition classifier (Cohen's
+kappa + prevalence-adjusted agreement), the **full 2x2** with defense-implication mapping,
+and a **reasoning vs. non-reasoning** comparison on local open-weight models.
 
 ## Setup
 
-- **Models**:
-  - `qwen2.5:7b-instruct` - non-reasoning instruct baseline
-  - `deepseek-r1:7b` (DeepSeek-R1-Distill-Qwen-7B) - reasoning model, same base family
-    as the Qwen baseline above, run at temperature=0.6 per DeepSeek's own usage
-    guidance (the 7B distill is documented to show degenerative repetition/looping at
-    temperature=0.0; higher temperature substantially reduces this)
-  - `llama3.1:8b` - secondary non-reasoning model, included where feasible
-  - All served locally via Ollama on Apple Silicon (M5, 16GB unified memory)
-- **Scenarios**: AgentDojo banking suite (subset of 50-80 from the 144 available),
-  possibly supplemented with a stratified InjecAgent sample
-- **Pipeline**: harness -> recognition classifier -> outcome recorder -> taxonomy
-  crossing -> analysis
+- **Reasoning model:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temperature 0.6
+  (DeepSeek's guidance; avoids the degenerate looping seen at 0.0).
+- **Non-reasoning baseline:** `qwen2.5:7b-instruct`, temperature 0.0.
+  Note: these are *not* the same base family (14B distill is from Qwen2.5-14B), so the
+  comparison is framed as reasoning-vs-non-reasoning across sizes; a same-base control
+  (`qwen2.5:14b-instruct`) may be added if memory/time allow.
+- The 7B distill (`deepseek-r1:7b`) was evaluated and **abandoned**: it cannot reliably
+  drive multi-step AgentDojo tasks (hallucinates tool names, stalls). 14B is the viable
+  reasoning model on this hardware.
+- All models served locally via Ollama on Apple Silicon (M5, 16GB unified memory). No API budget.
+- **Scenarios:** AgentDojo banking suite (16 user tasks x 9 injection tasks).
 
-## Repo map
+## Pipeline (src/)
 
-- `src/harness.py` — Component 1. Runs a scenario through a model, logs full message
-  trace (including `<think>` blocks for reasoning models via `ReasoningPromptingLLM`,
-  which patches around an AgentDojo bug where the `reasoning` API field is silently
-  dropped). Every run is tagged with two data-quality flags: `ended_cleanly` (did the
-  run end in a genuine conclusion, vs. a silent tool-call format failure) and
-  `stuck_in_loop` (did the model repeat an identical tool call without progress).
-  Downstream components should filter on both before treating a run as valid data.
-- `src/recognition.py` — Component 2: rule-based classifier - does the CoT contain a
-  recognition signal? (patterns to be rebuilt against real reasoning-model traces,
-  not assumed a priori)
-- `src/outcome.py` — Component 3: did the final action match the attacker's goal?
-  (mostly reuses AgentDojo's own `security`/`utility` checkers; a supplementary
-  looser compliance signal is planned since the strict checker undercounts
-  in-spirit compliance)
-- `src/taxonomy.py` — Component 4: crosses recognition x outcome into the four
-  categories (needs a fifth bucket for runs where the model never meaningfully
-  engaged with the injected content at all, e.g. task failure unrelated to the attack)
-- `src/analysis.py` — Component 5: per-model distributions, defense-implication mapping
-- `annotations/` — hand-labeled traces for the recognition classifier's inter-rater
-  reliability check (target Cohen's kappa > 0.7; also report prevalence-adjusted
-  agreement given the recognition class may be rare/imbalanced)
+- `harness.py` — runs a scenario, captures the full trace including `<think>` blocks
+  (via `ReasoningPromptingLLM`, which recovers the `reasoning` API field AgentDojo drops).
+  Injects a dynamically-generated compact tool list (fixes reasoning models inventing
+  tool names) and enforces keyword-argument / one-call-per-turn format (AgentDojo's parser
+  silently drops positional args). Tags each run with three validity flags:
+  `ended_cleanly`, `stuck_in_loop`, and `injection_encountered` (did a tool output
+  actually present the injection to the model — required, else the run is not a valid trial).
+- `outcome.py` — Component 3: tiered compliance signal (full / partial / none) derived
+  from each task's ground_truth, reported alongside AgentDojo's strict `security` so the
+  gap between them can be measured.
+- `recognition.py` — Component 2: rule-based recognition classifier (strong / weak / none)
+  over the reasoning trace. Proximity-scoped: recognition language only counts when it
+  co-occurs with a reference to the injection (matching recognition-shaped language
+  anywhere produces mostly false positives). Returns matched spans for hand-audit; a
+  characterized baseline, not trusted outright.
+- `taxonomy.py` — Component 4: crosses recognition x compliance into the four cells;
+  gates on validity (invalid runs -> "excluded", never counted). Two judgment calls are
+  explicit toggles (does "weak" count as recognized; does "partial" count as complied),
+  so results are reported both ways.
+- `analysis.py` — Component 5: distributions and defense-implication mapping (not built yet).
 
-## Status
+## Pilot result (n=11 usable 14B traces)
 
-Harness (Component 1) validated across both non-reasoning and reasoning models, with
-data-quality flagging in place. Early scenario batches run on Qwen2.5-7B-Instruct and
-Llama-3.1-8B-Instruct show consistent near-zero recognition signal, motivating the
-reasoning-model addition above. Components 2-5 not yet built.
+Full pipeline, default toggles (weak = not recognized, partial = complied):
+
+    blind_resistance:      9
+    detection_failure:     2
+    principled_resistance: 0
+    alignment_failure:     0
+
+Both populated cells are in the *not-recognized* row. A capable open reasoning model with
+fully externalized reasoning showed no recognition-based behavior: resistance was blind,
+and both attack successes were detection failures (complied without recognizing). This is
+instance-level support for WASP's "security by incompetence," with direct trace evidence
+of the absent recognition. Pilot scale — to be confirmed at n>=40 with the annotation study.
+
+## Next
+
+Scale to ~40 usable traces; hand-annotate for the recognition classifier's inter-rater
+reliability (Cohen's kappa + prevalence-adjusted agreement); then the full
+reasoning-vs-non-reasoning run.
