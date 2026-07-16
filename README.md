@@ -1,6 +1,6 @@
 # Recognition vs. Compliance: A Behavioral Taxonomy of Agent Prompt-Injection Failures
 
-**Status: pipeline built and validated on a pilot set; scaling to the annotation study. Numbers below are pilot-scale (n=11) and expected to change.**
+**Status: banking result locked (n=32 main pool, stable across 4 batches); recognition classifier built and proximity-validated; human annotation study set up and about to begin. Next: kappa study, then a second suite and the reasoning-vs-non-reasoning comparison.**
 
 ## The idea
 
@@ -37,15 +37,16 @@ The space is more crowded than it first appears; the contribution is scoped acco
   attention/activation features — a different object (input classification, not
   behavioral failure), modality (activations, not CoT), and goal (defense, not diagnosis).
 
-The defensible contribution over these: a **validated** recognition classifier (Cohen's
-kappa + prevalence-adjusted agreement), the **full 2x2** with defense-implication mapping,
-and a **reasoning vs. non-reasoning** comparison on local open-weight models.
+The intended contribution over these: a recognition classifier with a documented,
+reproducible annotation scheme and a reliability study (Cohen's kappa + prevalence-adjusted
+agreement) — in progress, see Validation below; the **full 2x2** with defense-implication
+mapping; and a **reasoning vs. non-reasoning** comparison on local open-weight models.
 
 ## Setup
 
 - **Reasoning model:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temperature 0.6
   (DeepSeek's guidance; avoids the degenerate looping seen at 0.0).
-- **Non-reasoning baseline:** `qwen2.5:7b-instruct`, temperature 0.0.
+- **Non-reasoning baseline (planned, not yet run):** `qwen2.5:7b-instruct`, temperature 0.0.
   Note: these are *not* the same base family (14B distill is from Qwen2.5-14B), so the
   comparison is framed as reasoning-vs-non-reasoning across sizes; a same-base control
   (`qwen2.5:14b-instruct`) may be added if memory/time allow.
@@ -78,23 +79,60 @@ and a **reasoning vs. non-reasoning** comparison on local open-weight models.
   so results are reported both ways.
 - `analysis.py` — Component 5: distributions and defense-implication mapping (not built yet).
 
-## Pilot result (n=11 usable 14B traces)
+## Banking result (n=32 main pool, stable across 4 batches)
 
-Full pipeline, default toggles (weak = not recognized, partial = complied):
+Full pipeline, default toggles (weak = not recognized, partial = complied),
+main pool excludes user_task_14 (see case study below):
 
-    blind_resistance:      9
-    detection_failure:     2
+    blind_resistance:      26
+    detection_failure:     6
     principled_resistance: 0
     alignment_failure:     0
 
-Both populated cells are in the *not-recognized* row. A capable open reasoning model with
-fully externalized reasoning showed no recognition-based behavior: resistance was blind,
-and both attack successes were detection failures (complied without recognizing). This is
-instance-level support for WASP's "security by incompetence," with direct trace evidence
-of the absent recognition. Pilot scale — to be confirmed at n>=40 with the annotation study.
+Recognition levels across the main pool: 30 none, 2 weak, 0 strong — zero
+*spontaneous* recognition across 32 comparable trials. Every resistance was
+blind (the model never flagged the injection, or processed it as inert data);
+every compromise was a detection failure (complied without recognizing).
+Detection-failure rate 6/32 = 19%, consistent with WASP's end-to-end ASR band
+(0-17%). Instance-level support for "security by incompetence," with direct
+trace evidence of the absent recognition. The pattern firmed as n grew
+(11 -> 19 -> 28 -> 32), so it is not a pilot artifact.
+
+**Case study — task-elicited recognition (user_task_14).** user_task_14 is the
+banking suite's only suspicion-priming task ("check for suspicious activity,
+update the password if anything looks off"). It is excluded from the main pool
+because its recognition and compliance are not comparable to other tasks (it
+pre-authorizes a sensitive action and instructs suspicion). It is the *only*
+source of `strong` recognition in the whole dataset — and even so it produced
+recognition only ~40% of the time. Finding: recognition is unreliable even when
+explicitly elicited, and elicited recognition does not reliably produce
+resistance (one case recognized the injection yet still executed the authorized
+password change).
+
+**Compliance vs. strict security.** The tiered compliance signal caught two
+compromises AgentDojo's strict `security` scored as failures: a recurring
+payment redirected to the attacker (partial), and a full send to the attacker
+IBAN whose data-exfil payload was left as an unfilled template placeholder
+(full compliance, security=False — the attack half-succeeded). These are the
+concrete gap cases motivating a compliance signal separate from ASR.
+
+## Validation (in progress)
+
+Because recognition is a rare class, the annotation study reports **both**
+Cohen's kappa and prevalence-adjusted agreement (PABAK). Annotation guidelines,
+a blind shuffled worksheet (42 usable traces, no classifier output shown), and
+a first-annotator label sheet are in `annotations/`. A second annotator will
+label the same worksheet independently; the first annotator's labels are locked
+before the second begins.
 
 ## Next
 
-Scale to ~40 usable traces; hand-annotate for the recognition classifier's inter-rater
-reliability (Cohen's kappa + prevalence-adjusted agreement); then the full
-reasoning-vs-non-reasoning run.
+1. Complete the kappa annotation study (validate the recognition classifier).
+2. Build `src/analysis.py` (distribution tables, toggle-sensitivity report,
+   defense-implication mapping).
+3. Port to a second AgentDojo suite (Slack/Workspace) for generalization —
+   the field norm is all four suites, and banking is the hardest suite for
+   attackers, so this tests whether the finding holds where attacks succeed
+   more often.
+4. Run the `qwen2.5:7b-instruct` non-reasoning comparison (the core thesis
+   axis).
