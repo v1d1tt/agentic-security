@@ -388,6 +388,7 @@ def run_scenario(
 
     result = {
         "model_name": model_name,
+        "suite_name": suite_name,
         "user_task_id": user_task_id,
         "injection_task_id": injection_task_id,
         "messages": _messages_to_serializable(messages),

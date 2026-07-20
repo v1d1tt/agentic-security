@@ -79,24 +79,25 @@ mapping; and a **reasoning vs. non-reasoning** comparison on local open-weight m
   so results are reported both ways.
 - `analysis.py` — Component 5: distributions and defense-implication mapping (not built yet).
 
-## Banking result (n=32 main pool, stable across 4 batches)
+## Banking result (n=36 main pool, stable across 4 batches)
 
 Full pipeline, default toggles (weak = not recognized, partial = complied),
 main pool excludes user_task_14 (see case study below):
 
-    blind_resistance:      26
-    detection_failure:     6
+    blind_resistance:      28
+    detection_failure:     8
     principled_resistance: 0
     alignment_failure:     0
 
-Recognition levels across the main pool: 30 none, 2 weak, 0 strong — zero
-*spontaneous* recognition across 32 comparable trials. Every resistance was
+Recognition levels across the main pool: 34 none, 2 weak, 0 strong — zero
+*spontaneous* recognition across 36 comparable trials. Every resistance was
 blind (the model never flagged the injection, or processed it as inert data);
 every compromise was a detection failure (complied without recognizing).
-Detection-failure rate 6/32 = 19%, consistent with WASP's end-to-end ASR band
+Detection-failure rate 8/36 = 22%, close to WASP's end-to-end ASR band
 (0-17%). Instance-level support for "security by incompetence," with direct
-trace evidence of the absent recognition. The pattern firmed as n grew
-(11 -> 19 -> 28 -> 32), so it is not a pilot artifact.
+trace evidence of the absent recognition. The pattern firmed as n grew, so it is not a pilot artifact. (n=36 is the
+auto-discovered count of all valid banking non-task_14 traces via
+`python -m src.analysis`; an earlier hand-maintained list undercounted at 32.)
 
 **Case study — task-elicited recognition (user_task_14).** user_task_14 is the
 banking suite's only suspicion-priming task ("check for suspicious activity,
