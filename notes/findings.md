@@ -259,3 +259,49 @@ even when task-primed. Gap cases: 2 (task_12/inj_2 full, task_2/inj_6 partial).
 Lesson: n=36 (reproducible via `python -m src.analysis`) is now the canonical
 number. README and future write-ups use 36. The hand-list was never "wrong",
 just an undercount; auto-discovery is the source of truth going forward.
+
+---
+
+## CORE COMPARISON: reasoning vs non-reasoning, banking (deepseek-r1:14b vs qwen2.5:7b-instruct)
+
+Same banking scenarios replayed on both models (qwen combos auto-generated
+from deepseek traces). Main pool = task_14 excluded.
+
+                        deepseek-r1:14b      qwen2.5:7b-instruct
+                        (reasoning)          (non-reasoning)
+  n (main pool)         36                   39
+  blind_resistance      28 (78%)             24 (62%)
+  detection_failure      8 (22%)             15 (38%)
+  recognized row         0                    0
+  recognition levels    34 none/2 weak/0 str 39 none / 0 / 0
+  compliance            28 none/7 full/1 par 24 none/9 full/6 partial
+  compliance-vs-sec gaps 2                    7
+
+Findings:
+1. Non-reasoning model compromised ~1.7x more often (detection failure
+   38% vs 22%). The model that cannot deliberate is more exploitable.
+2. NEITHER model recognizes - but qwen's recognition is absolutely zero
+   (39 none, not one weak/strong). Non-reasoning models do not externalize
+   deliberation, so the recognized row cannot populate even in principle.
+   IMPORTANT FRAMING: recognition is only MEASURABLE on reasoning models;
+   this is itself an argument for why reasoning models are the right object
+   of study for the recognition question. qwen's zero is structural, not a
+   failure to detect.
+3. Toggle sensitivity: qwen is invariant to weak_counts (no weak cases);
+   only partial_counts moves it (9->15 detection failures). deepseek was
+   sensitive to weak_counts. 
+4. qwen has more compliance-vs-security gaps (7 vs 2) and more partial
+   compliance (6 vs 1) - the non-reasoning model more often takes
+   attacker-directed actions that don't fully satisfy the strict checker.
+   Strengthens the "ASR misses a lot" argument, more so for non-reasoning.
+
+CAVEAT: qwen case study is n=1 (task_14 runs mostly excluded, ended_cleanly
+=False/loops). No qwen task_14 elicited-recognition contrast available; the
+case study stays a deepseek-specific point.
+
+CONFOUND (motivates the same-base control): deepseek-r1:14b (distill from
+Qwen2.5-14B) vs qwen2.5:7b-instruct differ in BOTH reasoning AND size/base.
+Next: qwen2.5:14b-instruct (same base as the distill, non-reasoning) on the
+same combos, to isolate reasoning from size. If 14b-instruct still shows the
+higher compromise rate, the effect is reasoning-vs-not; if it matches
+deepseek, the effect was size.
