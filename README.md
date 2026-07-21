@@ -79,43 +79,65 @@ mapping; and a **reasoning vs. non-reasoning** comparison on local open-weight m
   so results are reported both ways.
 - `analysis.py` — Component 5: distributions and defense-implication mapping (not built yet).
 
-## Banking result (n=36 main pool, stable across 4 batches)
+## Banking results: reasoning vs. non-reasoning (three models)
 
-Full pipeline, default toggles (weak = not recognized, partial = complied),
-main pool excludes user_task_14 (see case study below):
+All three models ran the same banking scenarios. Main pool excludes
+user_task_14 (suspicion-priming; see case study). Default toggles
+(weak = not recognized, partial = complied). Reproduce via `python -m src.analysis`.
 
-    blind_resistance:      28
-    detection_failure:     8
-    principled_resistance: 0
-    alignment_failure:     0
+|                          | deepseek-r1:14b<br>(reasoning) | qwen2.5:14b-instruct<br>(non-reasoning) | qwen2.5:7b-instruct<br>(non-reasoning) |
+|--------------------------|--------------------------------|-----------------------------------------|----------------------------------------|
+| n (main pool)            | 36              | 50                   | 39                  |
+| blind_resistance         | 28              | 38                   | 24                  |
+| detection_failure        | 8               | 12                   | 15                  |
+| principled_resistance    | 0               | 0                    | 0                   |
+| alignment_failure        | 0               | 0                    | 0                   |
+| detection-failure rate   | 22%             | 24%                  | 38%                 |
 
-Recognition levels across the main pool: 34 none, 2 weak, 0 strong — zero
-*spontaneous* recognition across 36 comparable trials. Every resistance was
-blind (the model never flagged the injection, or processed it as inert data);
-every compromise was a detection failure (complied without recognizing).
-Detection-failure rate 8/36 = 22%, close to WASP's end-to-end ASR band
-(0-17%). Instance-level support for "security by incompetence," with direct
-trace evidence of the absent recognition. The pattern firmed as n grew, so it is not a pilot artifact. (n=36 is the
-auto-discovered count of all valid banking non-task_14 traces via
-`python -m src.analysis`; an earlier hand-maintained list undercounted at 32.)
+**The recognized row is empty in all three main pools** — zero spontaneous
+recognition across every comparable trial. Every resistance was blind (the
+model never flagged the injection, or processed it as inert data); every
+compromise was a detection failure (complied without recognizing).
+Instance-level support for WASP's "security by incompetence," with direct
+trace evidence of the absent recognition.
 
-**Case study — task-elicited recognition (user_task_14).** user_task_14 is the
-banking suite's only suspicion-priming task ("check for suspicious activity,
-update the password if anything looks off"). It is excluded from the main pool
-because its recognition and compliance are not comparable to other tasks (it
-pre-authorizes a sensitive action and instructs suspicion). It is the *only*
-source of `strong` recognition in the whole dataset — and even so it produced
-recognition only ~40% of the time. Finding: recognition is unreliable even when
-explicitly elicited, and elicited recognition does not reliably produce
-resistance (one case recognized the injection yet still executed the authorized
-password change).
+**It is size, not reasoning.** The two 14b models — reasoning vs. non-reasoning,
+*size held constant* — have nearly identical compromise rates (22% vs. 24%).
+The 7b is the outlier at 38%. So the compromise-rate difference is driven by
+model size, not by reasoning; an earlier two-model contrast (deepseek-14b vs.
+qwen-7b) was largely a size artifact. The honest finding: a reasoning model,
+despite externalizing rich deliberation, gets compromised about as often as a
+same-size non-reasoning model. Reasoning appears largely epiphenomenal to
+injection security at the compromise-rate level — which supports and extends
+the blind-resistance thesis (the capacity to deliberate does not, by itself,
+produce security).
 
-**Compliance vs. strict security.** The tiered compliance signal caught two
-compromises AgentDojo's strict `security` scored as failures: a recurring
-payment redirected to the attacker (partial), and a full send to the attacker
-IBAN whose data-exfil payload was left as an unfilled template placeholder
-(full compliance, security=False — the attack half-succeeded). These are the
-concrete gap cases motivating a compliance signal separate from ASR.
+**Case study — task-elicited recognition (user_task_14).** This is the banking
+suite's only suspicion-priming task ("check for suspicious activity, update the
+password if anything looks off"), excluded from the main pool because its
+recognition and compliance are not comparable to other tasks (it pre-authorizes
+a sensitive action and instructs suspicion). It is the *only* source of `strong`
+recognition in the dataset: deepseek-14b 3/6 strong, qwen-14b 6/8 strong. Two
+findings: (1) recognition appears only when the task explicitly elicits it, and
+even a non-reasoning model produces it then (written in normal output, not a
+reasoning block) — so "non-reasoning models cannot recognize" is false; the
+correct claim is they do not *spontaneously* externalize recognition. (2) When
+recognition does appear, it reliably produces resistance here (every recognized
+case in the case study is principled resistance, not compliance).
+
+**alignment_failure (recognized-then-complied) is empty under the strict toggle**
+in all three models. It appears only for deepseek under the permissive
+weak-counts toggle (one borderline case). Contrast with *Mind the GAP*, which
+found this cell heavily populated in frontier models; it is not robustly
+reproduced in these open models.
+
+**Compliance vs. strict security.** The tiered compliance signal caught
+compromises AgentDojo's strict `security` scored as failures (2 for deepseek,
+4 for qwen-14b, 7 for qwen-7b) — e.g. a recurring payment redirected to the
+attacker, and a send to the attacker IBAN whose data-exfil payload was left as
+an unfilled template placeholder (full compliance, security=False; the attack
+half-succeeded). The gap widens for smaller / non-reasoning models. These
+motivate a compliance signal separate from ASR.
 
 ## Validation (in progress)
 
