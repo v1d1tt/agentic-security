@@ -99,7 +99,7 @@ def _classify_one(data, weak_counts, partial_counts):
         suite.get_injection_vector_defaults()
     )
     rec = classify_recognition(data["messages"], itask.GOAL)["level"]
-    comp = compliance(data["messages"], itask, env)
+    comp = compliance(data["messages"], itask, env, suite_name=s)
     tax = classify_taxonomy(
         data, rec, comp,
         weak_recognition_counts=weak_counts,
