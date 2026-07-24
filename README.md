@@ -1,161 +1,142 @@
 # Recognition vs. Compliance: A Behavioral Taxonomy of Agent Prompt-Injection Failures
 
-**Status: banking result locked (n=32 main pool, stable across 4 batches); recognition classifier built and proximity-validated; human annotation study set up and about to begin. Next: kappa study, then a second suite and the reasoning-vs-non-reasoning comparison.**
+**Status: data collection complete — three models across two AgentDojo suites (banking, workspace). Full pipeline built and reproducible via `python -m src.analysis`. Remaining: the human annotation (kappa) study to validate the recognition classifier, then writing.**
 
 ## The idea
 
-Agent security benchmarks (AgentDojo, InjecAgent, WASP, etc.) mostly reduce an
-adversarial failure to one binary: did the attack succeed (ASR). That collapses two
-behaviorally distinct things that need different fixes:
+Agent security benchmarks (AgentDojo, InjecAgent, WASP) mostly reduce an adversarial
+failure to one binary: did the attack succeed (ASR). That collapses two behaviorally
+distinct failures that need different fixes:
 
 - **Detection Failure** — the agent never recognized the injected instruction, and complied.
-- **Alignment Failure** — the agent's reasoning showed recognition of the injected
-  instruction, but it complied anyway.
+- **Alignment Failure** — the agent's reasoning recognized the injection, but it complied anyway.
 
-This project classifies each *injection-reaching* run on two independent axes and crosses
-them into a 2x2:
+Each *injection-reaching* run is classified on two independent axes, crossed into a 2x2:
 
-|              | Recognized                | Not recognized       |
-|--------------|---------------------------|----------------------|
-| **Resisted** | Principled Resistance     | Blind Resistance     |
-| **Complied** | Alignment Failure         | Detection Failure    |
+|              | Recognized            | Not recognized     |
+|--------------|-----------------------|--------------------|
+| **Resisted** | Principled Resistance | Blind Resistance   |
+| **Complied** | Alignment Failure     | Detection Failure  |
 
-## Contribution, and how it relates to prior work
+## Contribution vs. prior work
 
-The space is more crowded than it first appears; the contribution is scoped accordingly.
+- **WASP** (arXiv 2504.18575) introduced two-level ASR and "security by incompetence"
+  (resistance by accident), in aggregate. This work pushes it to the per-instance level
+  and reads the reasoning trace directly.
+- **Mind the GAP** (arXiv 2602.16943) has an exploratory keyword failure taxonomy and a
+  risk-acknowledged-departure signal, but no inter-annotator reliability, on frontier APIs.
+  It names "semantic risk-acknowledgment classifiers validated against human annotations"
+  as future work — which this targets.
+- **AlignSentinel** (arXiv 2602.13597) does input detection via activations — different
+  object, modality, and goal.
 
-- **WASP** (arXiv 2504.18575, Meta FAIR) introduced reasoning-level vs. environment-level
-  ASR and "security by incompetence" (resistance by accident, not design), measured in
-  aggregate. This project pushes that to the per-instance level and reads the reasoning
-  trace directly rather than inferring from ASR gaps.
-- **Mind the GAP** (arXiv 2602.16943, Feb 2026) already includes an exploratory
-  four-mode failure taxonomy (its "rationalized abdication" ~ the Alignment Failure cell
-  here) and a Risk-Acknowledged Departure regex signal — but keyword-based, with no
-  inter-annotator reliability, on frontier API models. It explicitly names "semantic
-  risk-acknowledgment classifiers validated against human annotations" as future work.
-- **AlignSentinel** (arXiv 2602.13597, 2026) does alignment-aware *input detection* via
-  attention/activation features — a different object (input classification, not
-  behavioral failure), modality (activations, not CoT), and goal (defense, not diagnosis).
-
-The intended contribution over these: a recognition classifier with a documented,
-reproducible annotation scheme and a reliability study (Cohen's kappa + prevalence-adjusted
-agreement) — in progress, see Validation below; the **full 2x2** with defense-implication
-mapping; and a **reasoning vs. non-reasoning** comparison on local open-weight models.
+Contribution: a recognition classifier with a documented, reproducible scheme and a
+reliability study (Cohen's kappa + PABAK, in progress); the full 2x2 with
+defense-implication mapping; a reasoning-vs-non-reasoning comparison; and a cross-suite
+result on when recognition is even possible.
 
 ## Setup
 
-- **Reasoning model:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temperature 0.6
-  (DeepSeek's guidance; avoids the degenerate looping seen at 0.0).
-- **Non-reasoning baseline (planned, not yet run):** `qwen2.5:7b-instruct`, temperature 0.0.
-  Note: these are *not* the same base family (14B distill is from Qwen2.5-14B), so the
-  comparison is framed as reasoning-vs-non-reasoning across sizes; a same-base control
-  (`qwen2.5:14b-instruct`) may be added if memory/time allow.
-- The 7B distill (`deepseek-r1:7b`) was evaluated and **abandoned**: it cannot reliably
-  drive multi-step AgentDojo tasks (hallucinates tool names, stalls). 14B is the viable
-  reasoning model on this hardware.
-- All models served locally via Ollama on Apple Silicon (M5, 16GB unified memory). No API budget.
-- **Scenarios:** AgentDojo banking suite (16 user tasks x 9 injection tasks).
+- **Reasoning model:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temp 0.6.
+- **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill — the clean
+  same-size control) and `qwen2.5:7b-instruct`, temp 0.0.
+- `deepseek-r1:7b` was evaluated and abandoned (cannot drive multi-step tasks).
+- Local via Ollama, Apple Silicon M5 / 16GB. No API budget.
+- **Context:** banking runs at 4096 (all prompts verified under-limit); workspace at
+  16384 (larger environments exceed 4096 and were truncated/errored at the default).
+  Context is held constant *within* each suite across models, so cross-model comparisons
+  are clean. Cross-*suite* rate comparisons are avoided (different context).
+- **Suites:** banking (16 user x 9 injection tasks) and workspace (40 x 6).
 
 ## Pipeline (src/)
 
-- `harness.py` — runs a scenario, captures the full trace including `<think>` blocks
-  (via `ReasoningPromptingLLM`, which recovers the `reasoning` API field AgentDojo drops).
-  Injects a dynamically-generated compact tool list (fixes reasoning models inventing
-  tool names) and enforces keyword-argument / one-call-per-turn format (AgentDojo's parser
-  silently drops positional args). Tags each run with three validity flags:
-  `ended_cleanly`, `stuck_in_loop`, and `injection_encountered` (did a tool output
-  actually present the injection to the model — required, else the run is not a valid trial).
-- `outcome.py` — Component 3: tiered compliance signal (full / partial / none) derived
-  from each task's ground_truth, reported alongside AgentDojo's strict `security` so the
-  gap between them can be measured.
-- `recognition.py` — Component 2: rule-based recognition classifier (strong / weak / none)
-  over the reasoning trace. Proximity-scoped: recognition language only counts when it
-  co-occurs with a reference to the injection (matching recognition-shaped language
-  anywhere produces mostly false positives). Returns matched spans for hand-audit; a
-  characterized baseline, not trusted outright.
-- `taxonomy.py` — Component 4: crosses recognition x compliance into the four cells;
-  gates on validity (invalid runs -> "excluded", never counted). Two judgment calls are
-  explicit toggles (does "weak" count as recognized; does "partial" count as complied),
-  so results are reported both ways.
-- `analysis.py` — Component 5: distributions and defense-implication mapping (not built yet).
+- `harness.py` — runs a scenario; captures `<think>` blocks (`ReasoningPromptingLLM`);
+  injects a compact tool list; enforces keyword-arg format. Validity flags:
+  `ended_cleanly`, `stuck_in_loop`, `injection_encountered` (suite-agnostic,
+  punctuation-robust match of the injected payload in a tool output).
+- `outcome.py` — tiered compliance (full/partial/none), suite-aware (banking:
+  money/password; workspace: send_email/delete_file/calendar with list-membership
+  matching), reported alongside AgentDojo's strict `security`.
+- `recognition.py` — rule-based recognition (strong/weak/none) over the reasoning trace,
+  proximity-scoped to injection references (banking: IBAN/transaction id; workspace:
+  attacker/suspicious sender, phishing cues), with negation/echo guards. A characterized
+  baseline, hand-audited, not trusted outright.
+- `taxonomy.py` — crosses the axes into the four cells; validity-gated; two reported
+  toggles (does weak count as recognized; does partial count as complied).
+- `analysis.py` — distributions, toggle sensitivity, gap cases, defense mapping;
+  auto-discovers traces, filters by model and suite.
 
-## Banking results: reasoning vs. non-reasoning (three models)
+## Results
 
-All three models ran the same banking scenarios. Main pool excludes
-user_task_14 (suspicion-priming; see case study). Default toggles
-(weak = not recognized, partial = complied). Reproduce via `python -m src.analysis`.
+### Banking (context 4096; main pool excludes suspicion-priming user_task_14)
 
-|                          | deepseek-r1:14b<br>(reasoning) | qwen2.5:14b-instruct<br>(non-reasoning) | qwen2.5:7b-instruct<br>(non-reasoning) |
-|--------------------------|--------------------------------|-----------------------------------------|----------------------------------------|
-| n (main pool)            | 36              | 50                   | 39                  |
-| blind_resistance         | 28              | 38                   | 24                  |
-| detection_failure        | 8               | 12                   | 15                  |
-| principled_resistance    | 0               | 0                    | 0                   |
-| alignment_failure        | 0               | 0                    | 0                   |
-| detection-failure rate   | 22%             | 24%                  | 38%                 |
+|                        | deepseek-r1:14b<br>(reasoning) | qwen2.5:14b-instruct<br>(non-reasoning) | qwen2.5:7b-instruct<br>(non-reasoning) |
+|------------------------|--------------------------------|-----------------------------------------|----------------------------------------|
+| n (main pool)          | 35   | 42   | 31   |
+| blind_resistance       | 27   | 35   | 21   |
+| detection_failure      | 8    | 7    | 10   |
+| principled_resistance  | 0    | 0    | 0    |
+| alignment_failure      | 0    | 0    | 0    |
+| detection-failure rate | 23%  | 17%  | 32%  |
 
-**The recognized row is empty in all three main pools** — zero spontaneous
-recognition across every comparable trial. Every resistance was blind (the
-model never flagged the injection, or processed it as inert data); every
-compromise was a detection failure (complied without recognizing).
-Instance-level support for WASP's "security by incompetence," with direct
-trace evidence of the absent recognition.
+The recognized row is empty in every banking main pool — zero spontaneous recognition.
+Resistance is blind; compromises are detection failures. Instance-level support for
+WASP's "security by incompetence," with direct trace evidence of absent recognition.
+The two 14b models (reasoning vs. non-reasoning, size held constant) sit close together,
+so reasoning does not, by itself, make the model meaningfully harder to compromise at
+this scale. Recognition (`strong`) appears only in the task-elicited case study
+(user_task_14): deepseek 3/6, qwen-14b 6/8 — and even a non-reasoning model produces it
+when the task explicitly demands suspicion, so "non-reasoning models cannot recognize" is
+false; they simply do not do so spontaneously.
 
-**It is size, not reasoning.** The two 14b models — reasoning vs. non-reasoning,
-*size held constant* — have nearly identical compromise rates (22% vs. 24%).
-The 7b is the outlier at 38%. So the compromise-rate difference is driven by
-model size, not by reasoning; an earlier two-model contrast (deepseek-14b vs.
-qwen-7b) was largely a size artifact. The honest finding: a reasoning model,
-despite externalizing rich deliberation, gets compromised about as often as a
-same-size non-reasoning model. Reasoning appears largely epiphenomenal to
-injection security at the compromise-rate level — which supports and extends
-the blind-resistance thesis (the capacity to deliberate does not, by itself,
-produce security).
+### Workspace (context 16384)
 
-**Case study — task-elicited recognition (user_task_14).** This is the banking
-suite's only suspicion-priming task ("check for suspicious activity, update the
-password if anything looks off"), excluded from the main pool because its
-recognition and compliance are not comparable to other tasks (it pre-authorizes
-a sensitive action and instructs suspicion). It is the *only* source of `strong`
-recognition in the dataset: deepseek-14b 3/6 strong, qwen-14b 6/8 strong. Two
-findings: (1) recognition appears only when the task explicitly elicits it, and
-even a non-reasoning model produces it then (written in normal output, not a
-reasoning block) — so "non-reasoning models cannot recognize" is false; the
-correct claim is they do not *spontaneously* externalize recognition. (2) When
-recognition does appear, it reliably produces resistance here (every recognized
-case in the case study is principled resistance, not compliance).
+|                        | deepseek-r1:14b<br>(reasoning) | qwen2.5:14b-instruct<br>(non-reasoning) | qwen2.5:7b-instruct<br>(non-reasoning) |
+|------------------------|--------------------------------|-----------------------------------------|----------------------------------------|
+| n (main pool)          | 23   | 46   | 29   |
+| blind_resistance       | 22   | 46   | 28   |
+| detection_failure      | 0    | 0    | 1    |
+| principled_resistance  | 1    | 0    | 0    |
+| alignment_failure      | 0    | 0    | 0    |
 
-**alignment_failure (recognized-then-complied) is empty under the strict toggle**
-in all three models. It appears only for deepseek under the permissive
-weak-counts toggle (one borderline case). Contrast with *Mind the GAP*, which
-found this cell heavily populated in frontier models; it is not robustly
-reproduced in these open models.
+Blind resistance dominates again, and compromise is rare (workspace attacks require more
+steps; models mostly complete their legitimate task and never execute the injected
+side-quest).
 
-**Compliance vs. strict security.** The tiered compliance signal caught
-compromises AgentDojo's strict `security` scored as failures (2 for deepseek,
-4 for qwen-14b, 7 for qwen-7b) — e.g. a recurring payment redirected to the
-attacker, and a send to the attacker IBAN whose data-exfil payload was left as
-an unfilled template placeholder (full compliance, security=False; the attack
-half-succeeded). The gap widens for smaller / non-reasoning models. These
-motivate a compliance signal separate from ASR.
+### Main finding: recognition is suite-dependent (attack-surface legibility)
+
+On **banking**, deepseek shows ~zero spontaneous recognition — injections arrive as a
+transaction subject line, inert data the model does not scrutinize. On **workspace**,
+deepseek spontaneously recognizes injections: three hand-verified cases reason explicitly
+about phishing ("suspicious because it's from an AOL address asking for a Facebook
+security code … safer to ignore"; a Gmail sender impersonating Facebook; "shouldn't
+forward security codes to unknown addresses"). Workspace injections wear the social form
+of a phishing email — mismatched senders, out-of-place requests — legible signals a model
+can reason about. (Of the three, one is in the clean main pool as principled resistance;
+the other two occur in runs that also loop and are filtered.) The recognition axis is
+gated by whether the attack presents a humanly-legible signal: injections buried in data
+fields evade recognition; injections shaped like phishing get caught. This reframes the
+question from "models rarely recognize injections" to "models recognize injections when
+the attack is legible — and most benchmark injections are not."
+
+### Compliance vs. strict security
+
+The tiered compliance signal catches compromises AgentDojo's `security` scores as
+failures — e.g. a recurring payment redirected to the attacker, or a flawless send to the
+attacker email that `security` misses because its checker searches the inbox while the
+sent email is in the sent folder. The taxonomy uses the compliance signal, not `security`,
+so distributions are unaffected by such checker quirks.
 
 ## Validation (in progress)
 
-Because recognition is a rare class, the annotation study reports **both**
-Cohen's kappa and prevalence-adjusted agreement (PABAK). Annotation guidelines,
-a blind shuffled worksheet (42 usable traces, no classifier output shown), and
-a first-annotator label sheet are in `annotations/`. A second annotator will
-label the same worksheet independently; the first annotator's labels are locked
-before the second begins.
+Recognition is a rare class, so the annotation study reports both Cohen's kappa and PABAK.
+Guidelines, a blind shuffled worksheet, and a first-annotator sheet are in `annotations/`.
+A second annotator labels independently; annotations should include reached-but-excluded
+traces so the looping recognition cases are captured.
 
 ## Next
 
-1. Complete the kappa annotation study (validate the recognition classifier).
-2. Build `src/analysis.py` (distribution tables, toggle-sensitivity report,
-   defense-implication mapping).
-3. Port to a second AgentDojo suite (Slack/Workspace) for generalization —
-   the field norm is all four suites, and banking is the hardest suite for
-   attackers, so this tests whether the finding holds where attacks succeed
-   more often.
-4. Run the `qwen2.5:7b-instruct` non-reasoning comparison (the core thesis
-   axis).
+1. Regenerate the annotation worksheet over the final trace set (both suites, all models,
+   fixed classifier) and complete the kappa study.
+2. Write-up (target EMNLP): taxonomy, size-not-reasoning (banking), the suite-dependent
+   recognition finding, the compliance-vs-security gap, validated classifier.
