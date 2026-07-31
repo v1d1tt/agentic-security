@@ -1,69 +1,121 @@
-# Recognition vs. Compliance: A Behavioral Taxonomy of Agent Prompt-Injection Failures
+# Legibility, Not Capability: What Makes Prompt-Injection Attacks Visible in an Agent's Chain of Thought
 
-**Status: data collection complete — three models across two AgentDojo suites (banking, workspace). Full pipeline built and reproducible via `python -m src.analysis`. Remaining: the human annotation (kappa) study to validate the recognition classifier, then writing.**
+**Status: data collection complete — three models across two AgentDojo suites (banking, workspace). Full pipeline built and reproducible via `python -m src.analysis`. Remaining: kappa annotation study, one more novelty-check literature pass, then writing.**
 
 ## The idea
 
-Agent security benchmarks (AgentDojo, InjecAgent, WASP) mostly reduce an adversarial
-failure to one binary: did the attack succeed (ASR). That collapses two behaviorally
-distinct failures that need different fixes:
+Two literatures bear on this project and, until now, hadn't been connected for prompt injection specifically:
 
-- **Detection Failure** — the agent never recognized the injected instruction, and complied.
-- **Alignment Failure** — the agent's reasoning recognized the injection, but it complied anyway.
+1. **Agent-security taxonomies** (WASP, GAP) show models often "resist" injections by
+   accident, not by design ("security by incompetence"), and that a single ASR-style
+   binary conflates never-noticed attacks with noticed-but-complied-anyway attacks.
+2. **Chain-of-thought monitorability** (Korbak et al. 2025, and follow-ups) argues that a
+   reasoning model's CoT is a rare, valuable safety signal - IF the model's reasoning
+   externalizes the relevant computation. This depends on *necessity* (some tasks force
+   the model to reason in text) or *propensity* (the model just tends to think out loud).
+   The field's own open-questions list explicitly calls for "end-to-end evaluations of
+   monitorability... examining how effective CoT monitors are at catching misbehavior of
+   LLM agents in proxy environments" - and separately notes that propensity-driven
+   monitoring is "not generally robust," without characterizing what governs it.
 
-Each *injection-reaching* run is classified on two independent axes, crossed into a 2x2:
+This project answers that specific open question for prompt injection: **does an agent's
+CoT reveal that it has noticed an injected attack, and what determines whether it does?**
+The answer is not "smarter/reasoning models notice more" (capability) - it's that
+**noticing depends on whether the attack presents a humanly-legible signal** (legibility).
+Injections that look like phishing get caught in the reasoning trace; injections hidden as
+inert data fields do not, regardless of model size or reasoning ability.
+
+We measure this via a 2x2 behavioral taxonomy crossing recognition (did the CoT show
+awareness of the injection) with compliance (did the agent act on it):
 
 |              | Recognized            | Not recognized     |
 |--------------|-----------------------|--------------------|
 | **Resisted** | Principled Resistance | Blind Resistance   |
 | **Complied** | Alignment Failure     | Detection Failure  |
 
-## Contribution vs. prior work
+## Related work and how this differs
 
-- **WASP** (arXiv 2504.18575) introduced two-level ASR and "security by incompetence"
-  (resistance by accident), in aggregate. This work pushes it to the per-instance level
-  and reads the reasoning trace directly.
-- **Mind the GAP** (arXiv 2602.16943) has an exploratory keyword failure taxonomy and a
-  risk-acknowledged-departure signal, but no inter-annotator reliability, on frontier APIs.
-  It names "semantic risk-acknowledgment classifiers validated against human annotations"
-  as future work — which this targets.
-- **AlignSentinel** (arXiv 2602.13597) does input detection via activations — different
-  object, modality, and goal.
+The space has several adjacent literatures; the contribution is positioned at their
+intersection, not inside any one of them alone.
 
-Contribution: a recognition classifier with a documented, reproducible scheme and a
-reliability study (Cohen's kappa + PABAK, in progress); the full 2x2 with
-defense-implication mapping; a reasoning-vs-non-reasoning comparison; and a cross-suite
-result on when recognition is even possible.
+**Agent-security / injection taxonomies:**
+- **WASP** (arXiv 2504.18575, Meta FAIR) - two-level ASR, "security by incompetence"
+  (resistance by accident), measured in aggregate via action-diversion, not via reading
+  the reasoning trace. This work pushes the same idea to the per-instance level with
+  direct CoT evidence.
+- **Mind the GAP** (arXiv 2602.16943) - an exploratory keyword failure taxonomy and a
+  risk-acknowledged-departure signal on frontier APIs, with no inter-annotator
+  reliability. Explicitly names "semantic risk-acknowledgment classifiers validated
+  against human annotations" as future work - this project's kappa study targets exactly
+  that gap.
+- **AlignSentinel** (arXiv 2602.13597) - input detection via attention/activations, a
+  different object (input classification vs. behavioral outcome) and modality
+  (activations vs. CoT text).
+
+**Chain-of-thought monitorability (the newly-added anchor literature):**
+- **Korbak et al., "Chain of Thought Monitorability: A New and Fragile Opportunity for AI
+  Safety"** (arXiv 2507.11473) - the position paper this project operationalizes. A
+  cross-lab (Anthropic/OpenAI/DeepMind/Apollo/METR) agenda paper, not empirical. It names
+  prompt injection as a paradigm example of CoT-caught misbehavior ("I'm transferring
+  money because the website instructed me to") and calls for evaluations of what governs
+  monitorability, especially propensity-driven monitoring, which it flags as "not
+  generally robust" but understudied.
+- **Chen et al.** (arXiv 2505.05410) and related CoT-faithfulness work - models verbalize
+  influential prompt cues in under 20% of cases in general QA settings. This project asks
+  the injection-specific version of that question and finds the rate is not fixed but
+  gated by attack presentation.
+- Adjacent-but-different 2026 work found during a lit pass: CoT-injection-as-intervention
+  (inserting text INTO the CoT to steer behavior - the opposite direction from reading
+  CoT to detect an attack), deliberative monitors for scheming, and sabotage-detection
+  with varying monitor information access. These study self-generated misalignment or
+  monitor design, not whether an externally injected attack becomes legible in the
+  agent's own reasoning - the question this project asks. No published work was found
+  making this specific claim (attack-surface legibility gates injection-recognition in
+  CoT, demonstrated across suites with human validation) as of this literature pass;
+  this should be re-checked before submission, since the field moves weekly.
+- **"Breaking Agent Backbones"** (arXiv 2510.22620) - independently finds, on FRONTIER
+  models, that model size does not meaningfully predict agent security and that reasoning
+  only helps above a size threshold. This externally corroborates this project's
+  size-not-reasoning finding (see Results) on a completely different model class.
+
+**Field state, briefly:** prompt-injection security research is well-populated with attack
+taxonomies and defense surveys (CrowdStrike's 200+-technique taxonomy, OWASP LLM Top 10,
+NIST AI 600-1/CAISI), and CoT-monitorability research is a fast-moving, highly-visible
+safety subfield in its own right. Very little work sits at their intersection: using CoT
+specifically as an injection-recognition signal, characterized under controlled conditions
+(same scenarios, multiple models, multiple attack surfaces) with a validated classifier.
 
 ## Setup
 
 - **Reasoning model:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temp 0.6.
-- **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill — the clean
+- **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill - the clean
   same-size control) and `qwen2.5:7b-instruct`, temp 0.0.
 - `deepseek-r1:7b` was evaluated and abandoned (cannot drive multi-step tasks).
-- Local via Ollama, Apple Silicon M5 / 16GB. No API budget.
+- Local via Ollama, Apple Silicon M5 / 16GB. No API budget for the local runs; a small,
+  prepaid/capped frontier-model data point is planned separately (see Next).
 - **Context:** banking runs at 4096 (all prompts verified under-limit); workspace at
   16384 (larger environments exceed 4096 and were truncated/errored at the default).
-  Context is held constant *within* each suite across models, so cross-model comparisons
-  are clean. Cross-*suite* rate comparisons are avoided (different context).
+  Held constant *within* each suite across models; cross-*suite* rate comparisons are
+  avoided (different context).
 - **Suites:** banking (16 user x 9 injection tasks) and workspace (40 x 6).
 
 ## Pipeline (src/)
 
-- `harness.py` — runs a scenario; captures `<think>` blocks (`ReasoningPromptingLLM`);
+- `harness.py` - runs a scenario; captures `<think>` blocks (`ReasoningPromptingLLM`);
   injects a compact tool list; enforces keyword-arg format. Validity flags:
   `ended_cleanly`, `stuck_in_loop`, `injection_encountered` (suite-agnostic,
   punctuation-robust match of the injected payload in a tool output).
-- `outcome.py` — tiered compliance (full/partial/none), suite-aware (banking:
+- `outcome.py` - tiered compliance (full/partial/none), suite-aware (banking:
   money/password; workspace: send_email/delete_file/calendar with list-membership
   matching), reported alongside AgentDojo's strict `security`.
-- `recognition.py` — rule-based recognition (strong/weak/none) over the reasoning trace,
-  proximity-scoped to injection references (banking: IBAN/transaction id; workspace:
-  attacker/suspicious sender, phishing cues), with negation/echo guards. A characterized
-  baseline, hand-audited, not trusted outright.
-- `taxonomy.py` — crosses the axes into the four cells; validity-gated; two reported
+- `recognition.py` - the CoT monitor. Rule-based recognition (strong/weak/none) over the
+  reasoning trace, proximity-scoped to injection references (banking: IBAN/transaction
+  id; workspace: attacker/suspicious sender, phishing cues), with negation/echo guards. A
+  characterized baseline, hand-audited, not trusted outright - the kappa study is its
+  validation.
+- `taxonomy.py` - crosses the axes into the four cells; validity-gated; two reported
   toggles (does weak count as recognized; does partial count as complied).
-- `analysis.py` — distributions, toggle sensitivity, gap cases, defense mapping;
+- `analysis.py` - distributions, toggle sensitivity, gap cases, defense mapping;
   auto-discovers traces, filters by model and suite.
 
 ## Results
@@ -79,15 +131,14 @@ result on when recognition is even possible.
 | alignment_failure      | 0    | 0    | 0    |
 | detection-failure rate | 23%  | 17%  | 32%  |
 
-The recognized row is empty in every banking main pool — zero spontaneous recognition.
-Resistance is blind; compromises are detection failures. Instance-level support for
-WASP's "security by incompetence," with direct trace evidence of absent recognition.
+The recognized row is empty in every banking main pool - zero spontaneous recognition.
 The two 14b models (reasoning vs. non-reasoning, size held constant) sit close together,
-so reasoning does not, by itself, make the model meaningfully harder to compromise at
-this scale. Recognition (`strong`) appears only in the task-elicited case study
-(user_task_14): deepseek 3/6, qwen-14b 6/8 — and even a non-reasoning model produces it
-when the task explicitly demands suspicion, so "non-reasoning models cannot recognize" is
-false; they simply do not do so spontaneously.
+while the 7b is the outlier - so at this scale, model size predicts compromise better
+than reasoning ability does (independently corroborated on frontier models by "Breaking
+Agent Backbones," arXiv 2510.22620). Recognition (`strong`) appears only in the
+task-elicited case study (user_task_14): deepseek 3/6, qwen-14b 6/8 - even a non-reasoning
+model produces it when the task explicitly demands suspicion, so recognition is about
+elicitation, not raw capability.
 
 ### Workspace (context 16384)
 
@@ -99,44 +150,48 @@ false; they simply do not do so spontaneously.
 | principled_resistance  | 1    | 0    | 0    |
 | alignment_failure      | 0    | 0    | 0    |
 
-Blind resistance dominates again, and compromise is rare (workspace attacks require more
-steps; models mostly complete their legitimate task and never execute the injected
-side-quest).
+### Main finding: legibility gates recognition (not capability)
 
-### Main finding: recognition is suite-dependent (attack-surface legibility)
+On **banking**, deepseek shows ~zero spontaneous recognition - injections arrive as a
+transaction subject line, inert data the model does not scrutinize. On **workspace**, the
+same model spontaneously recognizes injections: three hand-verified cases reason
+explicitly about phishing - "suspicious because it's from an AOL address asking for a
+Facebook security code... safer to ignore"; a Gmail sender impersonating Facebook;
+"shouldn't forward security codes to unknown addresses." Workspace injections wear the
+social form of a phishing email - mismatched senders, out-of-place requests - legible
+signals a model can reason about, the same cues a human uses to spot phishing. (Of the
+three, one is in the clean main pool as principled resistance; two occur in runs that also
+loop and are filtered - annotation should include these.)
 
-On **banking**, deepseek shows ~zero spontaneous recognition — injections arrive as a
-transaction subject line, inert data the model does not scrutinize. On **workspace**,
-deepseek spontaneously recognizes injections: three hand-verified cases reason explicitly
-about phishing ("suspicious because it's from an AOL address asking for a Facebook
-security code … safer to ignore"; a Gmail sender impersonating Facebook; "shouldn't
-forward security codes to unknown addresses"). Workspace injections wear the social form
-of a phishing email — mismatched senders, out-of-place requests — legible signals a model
-can reason about. (Of the three, one is in the clean main pool as principled resistance;
-the other two occur in runs that also loop and are filtered.) The recognition axis is
-gated by whether the attack presents a humanly-legible signal: injections buried in data
-fields evade recognition; injections shaped like phishing get caught. This reframes the
-question from "models rarely recognize injections" to "models recognize injections when
-the attack is legible — and most benchmark injections are not."
+This reframes the question from "do models recognize injections" (rarely) to "when is
+recognition even POSSIBLE" - answer: when the attack is legible, independent of model size
+or reasoning capability. This is a direct, specific answer to Korbak et al.'s open question
+about what governs propensity-driven CoT monitoring, for the concrete case of injection.
 
 ### Compliance vs. strict security
 
 The tiered compliance signal catches compromises AgentDojo's `security` scores as
-failures — e.g. a recurring payment redirected to the attacker, or a flawless send to the
-attacker email that `security` misses because its checker searches the inbox while the
-sent email is in the sent folder. The taxonomy uses the compliance signal, not `security`,
-so distributions are unaffected by such checker quirks.
+failures - e.g. a recurring payment redirected to the attacker (security misses it on an
+exact-match technicality), or a flawless send to the attacker email that `security` misses
+because its checker searches the inbox while the sent email is in the sent folder. Gap
+cases widen monotonically as the model weakens (deepseek 2, qwen-14b 4, qwen-7b 6 in
+banking) - weaker models fail in graded, partial ways a binary metric misses. Full
+mechanism and toggle-sensitivity write-ups in `notes/writeups.md`.
 
 ## Validation (in progress)
 
 Recognition is a rare class, so the annotation study reports both Cohen's kappa and PABAK.
-Guidelines, a blind shuffled worksheet, and a first-annotator sheet are in `annotations/`.
-A second annotator labels independently; annotations should include reached-but-excluded
-traces so the looping recognition cases are captured.
+Guidelines, a blind shuffled worksheet, and a first-annotator sheet are in `annotations/`
+(to be regenerated over the final trace set, including reached-but-excluded traces, before
+annotating). A second annotator labels independently.
 
 ## Next
 
-1. Regenerate the annotation worksheet over the final trace set (both suites, all models,
-   fixed classifier) and complete the kappa study.
-2. Write-up (target EMNLP): taxonomy, size-not-reasoning (banking), the suite-dependent
-   recognition finding, the compliance-vs-security gap, validated classifier.
+1. One more targeted lit-search pass to stress-test the novelty claim before drafting
+   Related Work in final form.
+2. (Budget-permitting) one frontier-model data point via a prepaid/capped API, to test
+   whether legibility-gating holds beyond local open-weight models.
+3. Regenerate the annotation worksheet over the final trace set and complete the kappa study.
+4. Write-up: Abstract, Intro (motivated by Korbak et al.'s open question), Related Work,
+   Method, Results (as above), Validation (kappa), Discussion, Limitations, Conclusion.
+5. Venue decision (with seniors).
