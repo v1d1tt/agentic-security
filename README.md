@@ -1,5 +1,32 @@
 # Refusal or Incompetence? Measuring Injection Recognition in Agent Chains of Thought
 
+## In short
+
+When someone hides a malicious instruction in the data an AI agent reads, and the agent
+*doesn't* fall for it, current benchmarks can't tell you why. Did it spot the attack and
+refuse, or did it just never notice and get lucky? Those look identical in an attack-success
+rate, but they need completely different defences.
+
+This project reads the agent's own reasoning to tell them apart. Three findings:
+
+1. **Resistance is almost entirely blind.** Across ~200 valid trials, agents that resisted
+   injections almost never did so because they noticed them.
+2. **Model size predicts compromise better than "reasoning" does** (tested with a same-size
+   reasoning vs. non-reasoning control pair).
+3. **Whether the agent notices depends on how the attack is dressed up, not how smart it is.**
+   The same model shows near-zero suspicion when the attack hides in a transaction field, but
+   reasons explicitly about phishing when the identical class of attack arrives as an email
+   with a mismatched sender. Chain-of-thought monitoring is therefore a *conditional* defence:
+   it works against attacks carrying human-legible social cues, and is largely blind to
+   attacks that hide in data.
+
+The recognition classifier is validated against human annotation (Cohen's kappa = 0.75 vs.
+human; 0.80 inter-annotator), and its errors run in the conservative direction.
+
+Everything below is the full technical detail.
+
+---
+
 **Status: data collection, pipeline, and validation complete. Three models × two AgentDojo suites; classifier validated via a 60-trace enriched kappa study (human vs. LLM annotator vs. classifier). Remaining: writing only. No frontier-model data point (payment blocked; treated as a stated limitation, see Setup).**
 
 ## The problem this paper answers
@@ -71,6 +98,29 @@ Recognition-in-CoT is governed by **two** factors, not one:
   TRAP also logs 639 step-limit runs as noise ("indicating that they enter loops"); here
   looping is an explicit validity gate (`stuck_in_loop`) so such runs never enter the
   taxonomy.
+- **Beyond Attack-Success Rate** (arXiv 2607.07474) — the closest work on *graded outcome
+  measurement*, and on the same AgentDojo workspace suite. Introduces an action-graded harm
+  rubric (L0-L6, keyed to reversibility, scope and privilege) plus a programmatic severity
+  oracle that reads the attacker's goal rather than the benchmark verdict, and reports judge
+  reliability as a first-class result. Their critique is the same as ours - benchmarks
+  "report the outcome as a binary... the distance between a blocked attempt, an irreversible
+  local deletion, and a cross-scope leak is invisible in that bit" - and their instrument is
+  more thorough than our three-tier compliance signal. **We therefore treat graded compliance
+  as a method component rather than a contribution, and cite theirs as the fuller treatment.**
+  Our compliance-vs-security gap analysis is retained as supporting evidence for why a binary
+  security verdict is insufficient, not as a novel metric claim.
+- **Depth-Dependent Indirect Prompt Injection** (arXiv 2605.30686) — the nearest neighbour on
+  "presentation matters." Claims the first controlled within-suite comparison of payload
+  framing (authority vs. helpfulness vs. persona), alongside injection depth and turn budget.
+  Their conclusion: "the effective injection design strategy is not primarily rhetorical
+  (choice of framing) but structural: position the injection in a tool output whose context
+  makes the requested action appear as a plausible next step."
+  **How this differs:** their dependent variable is ASR - whether the attack *succeeds*. Ours
+  is recognition - whether the attack becomes *visible in the agent's reasoning*. These
+  dissociate: an attack can succeed while being noticed (alignment failure) or fail while
+  never being noticed (blind resistance), and that dissociation is precisely what a
+  success-rate metric cannot see. Their structural-coherence result and our legibility result
+  are complementary readings of the same underlying intuition, measured on different axes.
 - **Mind the GAP** (arXiv 2602.16943) — exploratory keyword failure taxonomy plus a
   risk-acknowledged-departure signal on frontier APIs, with no inter-annotator
   reliability. Names "semantic risk-acknowledgment classifiers validated against human
@@ -84,6 +134,14 @@ Recognition-in-CoT is governed by **two** factors, not one:
 - **Chen et al.** (arXiv 2505.05410) and CoT-faithfulness work — models verbalise
   influential prompt cues in under 20% of cases in QA settings. We ask the
   injection-specific version and find the rate is not fixed but presentation-dependent.
+- **Analyzing and Improving CoT Monitorability Through Information Theory** (arXiv 2602.18297)
+  — formal treatment of when CoT monitors provide robust supervision, noting obfuscation,
+  steganographic reasoning and unfaithfulness as limits. Theoretical counterpart to our
+  empirical characterisation.
+- **The Fragility of CoT Monitoring Across Typologically Diverse Languages** (arXiv 2605.27901)
+  — shows monitorability varies by *language*. A useful parallel: both that work and ours find
+  monitorability is conditional on a factor the agenda literature had not characterised (there,
+  language; here, attack-surface legibility).
 - **Breaking Agent Backbones** (arXiv 2510.22620) — independently finds on *frontier*
   models that size does not meaningfully predict agent security and that reasoning helps
   only above a size threshold. External corroboration of the size/reasoning result below.
@@ -94,10 +152,19 @@ Recognition-in-CoT is governed by **two** factors, not one:
   own reasoning.
 
 **Field state.** Attack taxonomies and defence surveys are plentiful (CrowdStrike's 200+
-technique taxonomy, OWASP LLM Top 10, NIST AI 600-1 / CAISI), and CoT monitorability is a
-fast-moving safety subfield. Little work sits at the intersection: CoT as an
-injection-*recognition* signal, measured under controlled conditions with a validated
-classifier. Re-check this positioning before submission; the field moves weekly.
+technique taxonomy, OWASP LLM Top 10, NIST AI 600-1 / CAISI); new injection benchmarks appear
+continuously (NetInjectBench arXiv 2607.10490; POISE arXiv 2606.07943; WhisperBench arXiv
+2607.05189); and CoT monitorability is a fast-moving safety subfield in its own right.
+
+**Precise novelty claim:** to our knowledge, no prior work treats *recognition of an injected
+attack in the agent's own reasoning* as a measured dependent variable, nor characterises what
+governs whether it appears. Prior work measures whether attacks succeed (ASR, severity grading),
+what makes them succeed (framing, depth, persuasion structure), or observes recognition
+anecdotally in appendices. We measure it, validate the measurement against human annotation,
+and identify attack-surface legibility as a governing factor.
+
+This positioning was re-verified against the literature shortly before writing; the field moves
+weekly and it should be checked again immediately before submission.
 
 ## Setup
 
