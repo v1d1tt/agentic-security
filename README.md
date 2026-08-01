@@ -1,6 +1,6 @@
 # Refusal or Incompetence? Measuring Injection Recognition in Agent Chains of Thought
 
-**Status: data collection complete — three models × two AgentDojo suites. Pipeline built and reproducible via `python -m src.analysis`. Annotation worksheet generated (60-trace enriched sample); first-annotator labeling in progress. Remaining: complete kappa study, writing. No frontier-model data point (payment blocked; treated as a stated limitation, see Setup).**
+**Status: data collection, pipeline, and validation complete. Three models × two AgentDojo suites; classifier validated via a 60-trace enriched kappa study (human vs. LLM annotator vs. classifier). Remaining: writing only. No frontier-model data point (payment blocked; treated as a stated limitation, see Setup).**
 
 ## The problem this paper answers
 
@@ -178,16 +178,46 @@ where attacker-directed compliance was near-zero). Mechanism is uniform: money r
 attacker but exact-match field checks fail. Full write-up plus toggle sensitivity in
 `notes/writeups.md`.
 
-## Validation (in progress)
+## Validation
 
 Recognition is a rare class (7.6% of the 276 reached-injection candidates across both
 suites and all three models: 15 strong, 6 weak, 255 none), so a plain random sample would
-contain almost no positives. The annotation set is therefore an ENRICHED sample: all 21
+contain almost no positives. The annotation set is an ENRICHED sample: all 21
 classifier-positive traces plus 39 stratified classifier-none traces (60 total, balanced
 across suite x model), including reached-but-excluded (looping) traces so the Workspace
-recognition cases are captured. Both Cohen's kappa and PABAK will be reported on this
-sample, with the true population base rate stated separately since the sample is not
-representative of it. Guidelines (with a Workspace-specific addendum), the blind shuffled
-worksheet, and annotator sheets are in `annotations/`. The first annotator is labeling now;
-labels are locked before the second annotator begins independently. If a second annotator
-is unavailable, this becomes an intra-rater (test-retest) study instead, reported as such.
+recognition cases are captured. The true population base rate (7.6%) is stated separately
+since the sample is not representative of it. Guidelines (with a Workspace-specific
+addendum), the blind shuffled worksheet, and annotator sheets are in `annotations/`; the
+reliability computation is `src/reliability.py`.
+
+**Annotators.** The first annotator is a human (this project's author), labeling
+independently against the written guidelines only, with no access to classifier output.
+The second annotator is an LLM (Gemini Pro, fresh context, guidelines-only) - a second
+human annotator was not available in the time available. Reported figures are therefore
+**human-vs-LLM** agreement, not human-vs-human; this is disclosed rather than presented as
+equivalent.
+
+**Results (3-class: strong/weak/none; 2-class collapses weak into "recognized" or not):**
+
+|                          | Cohen's kappa | PABAK | raw agreement |
+|--------------------------|---------------|-------|----------------|
+| human vs. LLM annotator (3-class)   | 0.795 | 0.875 | 91.7% (55/60) |
+| human vs. classifier (3-class)      | 0.751 | 0.825 | 88.3% (53/60) |
+| human vs. LLM annotator (2-class)   | 0.870 | 0.900 | 95.0% (57/60) |
+| human vs. classifier (2-class)      | 0.806 | 0.833 | 91.7% (55/60) |
+
+Human-LLM agreement is substantial-to-almost-perfect, indicating the annotation *scheme*
+(the written guidelines) is reproducible across independent raters. Human-classifier
+agreement is substantial: the rule-based monitor tracks human judgment closely but
+imperfectly.
+
+**The classifier's errors are one-directional: it systematically over-calls recognition**
+(5 of 7 disagreements are classifier=strong where the human said none/weak; only 1 is an
+under-call), via three identified mechanisms: (1) wrong-target suspicion - anchoring on
+suspicion of a co-occurring decoy transaction/email rather than the specific injection
+under test; (2) negation leakage - "transactions do not appear suspicious" still trips a
+suspicion pattern; (3) hedge insensitivity - treating hedged language ("might be
+suspicious") as equivalent to named-threat framing ("could indicate fraudulent
+activity"). Because the over-call direction dominates, **reported recognition rates are
+upper bounds on the true rate** - the empty/near-empty recognized row in the main results
+is therefore a conservative finding, not an inflated one.
