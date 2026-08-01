@@ -1,6 +1,6 @@
 # Refusal or Incompetence? Measuring Injection Recognition in Agent Chains of Thought
 
-**Status: data collection complete — three models × two AgentDojo suites. Pipeline built and reproducible via `python -m src.analysis`. Remaining: kappa annotation study, optional frontier data point, writing.**
+**Status: data collection complete — three models × two AgentDojo suites. Pipeline built and reproducible via `python -m src.analysis`. Annotation worksheet generated (60-trace enriched sample); first-annotator labeling in progress. Remaining: complete kappa study, writing. No frontier-model data point (payment blocked; treated as a stated limitation, see Setup).**
 
 ## The problem this paper answers
 
@@ -105,8 +105,10 @@ classifier. Re-check this positioning before submission; the field moves weekly.
 - **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill — same-size control)
   and `qwen2.5:7b-instruct`, temp 0.0.
 - `deepseek-r1:7b` evaluated and abandoned (cannot drive multi-step tasks).
-- Local via Ollama, Apple Silicon M5 / 16GB. A small prepaid/capped frontier data point is
-  planned to locate the capability threshold.
+- Local via Ollama, Apple Silicon M5 / 16GB. No frontier-model data point: a prepaid/capped
+  API attempt was blocked at payment. This is a stated limitation; the capability-threshold
+  half of the central claim is instead supported by citing TRAP and Breaking Agent Backbones
+  (see Central claim and Related work) rather than by a new experiment.
 - **Context:** banking 4096 (all prompts verified under-limit); workspace 16384 (larger
   environments truncated/errored at the default). Held constant *within* suite across
   models; cross-*suite* rate comparisons avoided.
@@ -178,7 +180,14 @@ attacker but exact-match field checks fail. Full write-up plus toggle sensitivit
 
 ## Validation (in progress)
 
-Recognition is a rare class, so both Cohen's kappa and PABAK are reported. Guidelines,
-blind shuffled worksheet, and annotator sheets in `annotations/` (to be regenerated over
-the final trace set, including reached-but-excluded traces). Second annotator labels
-independently after the first annotator's labels are locked.
+Recognition is a rare class (7.6% of the 276 reached-injection candidates across both
+suites and all three models: 15 strong, 6 weak, 255 none), so a plain random sample would
+contain almost no positives. The annotation set is therefore an ENRICHED sample: all 21
+classifier-positive traces plus 39 stratified classifier-none traces (60 total, balanced
+across suite x model), including reached-but-excluded (looping) traces so the Workspace
+recognition cases are captured. Both Cohen's kappa and PABAK will be reported on this
+sample, with the true population base rate stated separately since the sample is not
+representative of it. Guidelines (with a Workspace-specific addendum), the blind shuffled
+worksheet, and annotator sheets are in `annotations/`. The first annotator is labeling now;
+labels are locked before the second annotator begins independently. If a second annotator
+is unavailable, this becomes an intra-rater (test-retest) study instead, reported as such.
