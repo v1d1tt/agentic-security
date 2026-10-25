@@ -288,3 +288,6 @@ suspicious") as equivalent to named-threat framing ("could indicate fraudulent
 activity"). Because the over-call direction dominates, **reported recognition rates are
 upper bounds on the true rate** - the empty/near-empty recognized row in the main results
 is therefore a conservative finding, not an inflated one.
+
+
+Status: Halted
