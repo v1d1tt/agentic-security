@@ -1,204 +1,96 @@
 # Refusal or Incompetence? Measuring Injection Recognition in Agent Chains of Thought
 
+**Status: archived (October 2026).** This is an exploratory study from a summer 2026 research internship. It is not under submission, and no further runs are planned. Closely related work appeared in 2024 and in October 2026 (see Related work). Read the Known issues and Limitations sections before you use any number below.
+
 ## In short
 
-When someone hides a malicious instruction in the data an AI agent reads, and the agent
-*doesn't* fall for it, current benchmarks can't tell you why. Did it spot the attack and
-refuse, or did it just never notice and get lucky? Those look identical in an attack-success
-rate, but they need completely different defences.
+When an AI agent reads a malicious instruction hidden in its data and does not act on it, an attack-success rate cannot say why. The agent may have spotted the attack and refused, or it may have never noticed it. This project read the agents' own reasoning (`<think>` blocks and visible reasoning) to separate the two cases, on two AgentDojo suites with three local open-weight models.
 
-This project reads the agent's own reasoning to tell them apart. Three findings:
+What the data show, with their limits:
 
-1. **Resistance is almost entirely blind.** Across ~200 valid trials, agents that resisted
-   injections almost never did so because they noticed them.
-2. **Model size predicts compromise better than "reasoning" does** (tested with a same-size
-   reasoning vs. non-reasoning control pair).
-3. **Whether the agent notices depends on how the attack is dressed up, not how smart it is.**
-   The same model shows near-zero suspicion when the attack hides in a transaction field, but
-   reasons explicitly about phishing when the identical class of attack arrives as an email
-   with a mismatched sender. Chain-of-thought monitoring is therefore a *conditional* defence:
-   it works against attacks carrying human-legible social cues, and is largely blind to
-   attacks that hide in data.
+1. **Resistance was mostly blind in these runs.** In the banking main pools, no model showed spontaneous recognition of the injection in its reasoning. Most resisted runs never mentioned the attack. The injected text was the bare attacker goal, without AgentDojo's attack template, so this rate may be lower than it is for the standard attack (see Known issues).
+2. **No size or reasoning effect can be claimed.** No difference in compromise rate between the models is statistically significant at this sample size, and a file-name bug changed the banking counts (see Known issues).
+3. **Presentation may affect recognition. This is an untested hypothesis.** deepseek-r1:14b reasoned explicitly about phishing in three workspace traces, where the injection came as an email from a mismatched sender. Only one of the three is in the clean main pool, and the human annotator labelled that one 'none'.
 
-The recognition classifier is validated against human annotation (Cohen's kappa = 0.75 vs.
-human; 0.80 inter-annotator), and its errors run in the conservative direction.
-
-Everything below is the full technical detail.
+The recognition classifier was checked against a human annotator (Cohen's kappa 0.75, 3-class) on a 60-trace enriched sample. That sample overlaps the traces used to write the classifier rules, so the check is in-sample.
 
 ---
 
-**Status: data collection, pipeline, and validation complete. Three models × two AgentDojo suites; classifier validated via a 60-trace enriched kappa study (human vs. LLM annotator vs. classifier). Remaining: writing only. No frontier-model data point (payment blocked; treated as a stated limitation, see Setup).**
+## The question
 
-## The problem this paper answers
+Agent-security benchmarks measure whether an attack succeeded. They cannot tell you why an attack failed. TRAP (arXiv 2512.23128) states the problem:
 
-Agent-security benchmarks measure whether an attack succeeded. They cannot tell you *why*
-an attack failed. TRAP (arXiv 2512.23128) states the problem precisely and then declines
-to solve it:
+> 'When an agent starts but fails to complete a malicious task, it is unclear whether this reflects refusal or incompetence... and LLM judges often misclassify such cases.'
 
-> "When an agent starts but fails to complete a malicious task, it is unclear whether this
-> reflects refusal or incompetence... and LLM judges often misclassify such cases."
-
-That ambiguity is this project's target. We separate **recognition** (did the agent's
-reasoning show awareness of the injected instruction) from **compliance** (did it act on
-it), and cross them:
+This project separates **recognition** (did the agent's reasoning show awareness of the injected instruction) from **compliance** (did it act on it), and crosses them:
 
 |              | Recognized            | Not recognized     |
 |--------------|-----------------------|--------------------|
 | **Resisted** | Principled Resistance | Blind Resistance   |
 | **Complied** | Alignment Failure     | Detection Failure  |
 
-This also operationalises an open question from the CoT-monitorability literature
-(Korbak et al., arXiv 2507.11473): that agenda paper names prompt injection as a paradigm
-case of misbehaviour caught in the reasoning trace, calls for "end-to-end evaluations of
-monitorability... in proxy environments," and flags *propensity*-driven monitoring
-(the model volunteering its reasoning when not forced to) as valuable but "not generally
-robust" — without characterising what governs it. This project characterises it for
-injection.
+The question links to the CoT-monitorability agenda (Korbak et al., arXiv 2507.11473), which names prompt injection as a case of misbehaviour that a reasoning trace can reveal.
 
-## Central claim
+## Related work
 
-Recognition-in-CoT is governed by **two** factors, not one:
+**Work that measures the same thing.** Recognition of an injected attack in the agent's own reasoning has been measured before and alongside this project:
 
-1. **A capability threshold.** Frontier models resist and recognise far more than small
-   open-weight models (TRAP: 13% ASR for GPT-5 vs 43% for DeepSeek-R1; a separate 2026
-   result reports near-zero AgentDojo ASR on the newest frontier models, i.e. benchmark
-   saturation). Capability plainly matters — we do not claim otherwise.
-2. **Attack-surface legibility, below that threshold.** Holding the model fixed, whether
-   recognition appears at all depends on how the injection is *presented*. Injections
-   embedded as inert data (a banking transaction subject line) produce essentially zero
-   spontaneous recognition; injections wearing the social form of a phishing email
-   (mismatched sender, out-of-place request) are reasoned about explicitly.
+- **InjecAgent** (arXiv 2403.02691, Findings of ACL 2024), Sec. 4.3, splits unsuccessful attacks into two types of output and reports a 'sensitivity rate' for outputs that recognize the attacker's instruction as abnormal.
+- **Zarif et al., 'Ignored, Not Refused'** (arXiv 2610.23254, October 2026) does this study at scale: 33,000 trajectories from 11 open-weight agents (2 to 14B) on AgentDojo and InjecAgent, with per-trajectory recognition labels and two human annotators (kappa 0.835). It finds that 'most failed attacks are ignored (76-80%) rather than refused (17-18%)'. Treat it as the reference work for this question.
+- **Dong et al.** (arXiv 2608.02657) label exposed AgentDojo turns with a CoT monitor, including a recognition-but-no-reaction class.
+- **Zhu et al., 'Your Agent is More Brittle Than You Think'** (arXiv 2604.03870) report clear verbal resistance before compliance on AgentDojo banking, with Qwen-2.5-14B among the backbones.
+- **CIPR, 'Beyond the Payload'** (arXiv 2608.30686, EMNLP 2026) measures a per-instance alert rate for coding agents, with two human annotators.
+- **Jia et al., 'The Window Is in the Reasoning'** (arXiv 2610.24048) study recognition on AgentDojo with thinking on and off, and show that single-run labels of thinking agents are noisy.
+- **Scammer4U** (arXiv 2606.00497) and **Mind the GAP** (arXiv 2602.16943) cross verbalized suspicion with unsafe actions in other settings.
 
-## Related work and how this differs
+**Other related work.**
 
-**Injection benchmarks / taxonomies**
-- **AgentDojo** (arXiv 2406.13352) — the environment used here; four suites, indirect
-  injection via poisoned tool outputs. Still the field standard, though saturating on
-  frontier models.
-- **WASP** (arXiv 2504.18575) — two-level ASR and "security by incompetence" (resistance
-  by accident), measured in aggregate from action-diversion, not from reading the
-  reasoning trace. This work moves to per-instance measurement with direct CoT evidence.
-- **TRAP** (arXiv 2512.23128, Oxford / UK AISI) — the closest and most important prior
-  work. A *benchmark* contribution: a five-dimensional modular attack space (Cialdini
-  persuasion principles × jailbreak methods × button/hyperlink × location × tailoring)
-  on cloned websites, six frontier models, with a deliberately binary **one-click ASR**
-  metric. Findings concern attack *construction* (buttons ~3.5× hyperlinks; light
-  tailoring up to ~6× ASR; transferability tracks robustness).
-  **Overlap to acknowledge:** their Appendix E.3 anecdotally observes framing
-  sensitivity — Claude Sonnet 3.7 complied under authoritative framing ("admin policy,"
-  "legally required") but expressed explicit suspicion under friendly framing — and they
-  note resistance "depends on the match between injection framing and task context."
-  So the *insight* that presentation affects whether suspicion surfaces has prior
-  anecdotal precedent and is credited as such.
-  **How this differs:** TRAP presents eight curated example traces with no classifier,
-  no counts, no taxonomy, and no annotation validation; recognition is not a measured
-  variable. This project makes it one — a documented classifier, applied uniformly across
-  three models, two attack surfaces, and ~200 valid trials, hand-audited and validated
-  against human annotation (Cohen's kappa + PABAK). Prior work observed it; we measure it.
-  TRAP also logs 639 step-limit runs as noise ("indicating that they enter loops"); here
-  looping is an explicit validity gate (`stuck_in_loop`) so such runs never enter the
-  taxonomy.
-- **Beyond Attack-Success Rate** (arXiv 2607.07474) — the closest work on *graded outcome
-  measurement*, and on the same AgentDojo workspace suite. Introduces an action-graded harm
-  rubric (L0-L6, keyed to reversibility, scope and privilege) plus a programmatic severity
-  oracle that reads the attacker's goal rather than the benchmark verdict, and reports judge
-  reliability as a first-class result. Their critique is the same as ours - benchmarks
-  "report the outcome as a binary... the distance between a blocked attempt, an irreversible
-  local deletion, and a cross-scope leak is invisible in that bit" - and their instrument is
-  more thorough than our three-tier compliance signal. **We therefore treat graded compliance
-  as a method component rather than a contribution, and cite theirs as the fuller treatment.**
-  Our compliance-vs-security gap analysis is retained as supporting evidence for why a binary
-  security verdict is insufficient, not as a novel metric claim.
-- **Depth-Dependent Indirect Prompt Injection** (arXiv 2605.30686) — the nearest neighbour on
-  "presentation matters." Claims the first controlled within-suite comparison of payload
-  framing (authority vs. helpfulness vs. persona), alongside injection depth and turn budget.
-  Their conclusion: "the effective injection design strategy is not primarily rhetorical
-  (choice of framing) but structural: position the injection in a tool output whose context
-  makes the requested action appear as a plausible next step."
-  **How this differs:** their dependent variable is ASR - whether the attack *succeeds*. Ours
-  is recognition - whether the attack becomes *visible in the agent's reasoning*. These
-  dissociate: an attack can succeed while being noticed (alignment failure) or fail while
-  never being noticed (blind resistance), and that dissociation is precisely what a
-  success-rate metric cannot see. Their structural-coherence result and our legibility result
-  are complementary readings of the same underlying intuition, measured on different axes.
-- **Mind the GAP** (arXiv 2602.16943) — exploratory keyword failure taxonomy plus a
-  risk-acknowledged-departure signal on frontier APIs, with no inter-annotator
-  reliability. Names "semantic risk-acknowledgment classifiers validated against human
-  annotations" as future work — precisely the gap the kappa study targets.
-- **AlignSentinel** (arXiv 2602.13597) — input detection from attention/activations;
-  different object (input classification vs. behavioural outcome) and modality.
-
-**CoT monitorability**
-- **Korbak et al.** (arXiv 2507.11473) — the cross-lab agenda paper this project
-  operationalises (necessity vs. propensity; monitorability as fragile).
-- **Chen et al.** (arXiv 2505.05410) and CoT-faithfulness work — models verbalise
-  influential prompt cues in under 20% of cases in QA settings. We ask the
-  injection-specific version and find the rate is not fixed but presentation-dependent.
-- **Analyzing and Improving CoT Monitorability Through Information Theory** (arXiv 2602.18297)
-  — formal treatment of when CoT monitors provide robust supervision, noting obfuscation,
-  steganographic reasoning and unfaithfulness as limits. Theoretical counterpart to our
-  empirical characterisation.
-- **The Fragility of CoT Monitoring Across Typologically Diverse Languages** (arXiv 2605.27901)
-  — shows monitorability varies by *language*. A useful parallel: both that work and ours find
-  monitorability is conditional on a factor the agenda literature had not characterised (there,
-  language; here, attack-surface legibility).
-- **Breaking Agent Backbones** (arXiv 2510.22620) — independently finds on *frontier*
-  models that size does not meaningfully predict agent security and that reasoning helps
-  only above a size threshold. External corroboration of the size/reasoning result below.
-- Adjacent but different: CoT-injection-as-*intervention* (writing into the CoT to steer
-  behaviour — opposite direction), deliberative monitors for scheming, sabotage detection
-  under varying monitor information access. These study self-generated misalignment or
-  monitor design, not whether an externally injected attack becomes legible in the agent's
-  own reasoning.
-
-**Field state.** Attack taxonomies and defence surveys are plentiful (CrowdStrike's 200+
-technique taxonomy, OWASP LLM Top 10, NIST AI 600-1 / CAISI); new injection benchmarks appear
-continuously (NetInjectBench arXiv 2607.10490; POISE arXiv 2606.07943; WhisperBench arXiv
-2607.05189); and CoT monitorability is a fast-moving safety subfield in its own right.
-
-**Precise novelty claim:** to our knowledge, no prior work treats *recognition of an injected
-attack in the agent's own reasoning* as a measured dependent variable, nor characterises what
-governs whether it appears. Prior work measures whether attacks succeed (ASR, severity grading),
-what makes them succeed (framing, depth, persuasion structure), or observes recognition
-anecdotally in appendices. We measure it, validate the measurement against human annotation,
-and identify attack-surface legibility as a governing factor.
-
-This positioning was re-verified against the literature shortly before writing; the field moves
-weekly and it should be checked again immediately before submission.
+- **AgentDojo** (arXiv 2406.13352): the environment used here.
+- **WASP** (arXiv 2504.18575): two-level attack success. Its 'security through incompetence' describes agents that are hijacked but cannot finish the attacker's task. Its judge reads the agent's reasoning.
+- **TRAP** (arXiv 2512.23128): a modular attack benchmark on cloned websites. Its Appendix E.2 observes that resistance 'depends on the match between injection framing and task context'.
+- **Beyond Attack-Success Rate** (arXiv 2607.07474): an action-graded harm rubric on the same workspace suite. It is the fuller treatment of graded compliance, which this project uses only as a method component.
+- **Depth-Dependent Indirect Prompt Injection** (arXiv 2605.30686): a controlled comparison of payload framing with ASR as the outcome. Its Sec. IX-H names recognition in the agent's reasoning as future work.
+- **Breaking Agent Backbones** (arXiv 2510.22620) finds that 'enhanced reasoning capabilities improve security, while model size does not correlate with security'. That is the opposite of the size result that an earlier version of this README reported.
+- Work on presentation effects that bears on the hypothesis in finding 3: FACE-Eval (arXiv 2608.29464), Duzan and Stickland (arXiv 2608.04735), and Prompt Injection as Role Confusion (arXiv 2603.12277).
+- CoT monitorability: Korbak et al. (arXiv 2507.11473), Chen et al. (arXiv 2505.05410), arXiv 2602.18297 and arXiv 2605.27901.
 
 ## Setup
 
-- **Reasoning:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temp 0.6.
-- **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill — same-size control)
-  and `qwen2.5:7b-instruct`, temp 0.0.
-- `deepseek-r1:7b` evaluated and abandoned (cannot drive multi-step tasks).
-- Local via Ollama, Apple Silicon M5 / 16GB. No frontier-model data point: a prepaid/capped
-  API attempt was blocked at payment. This is a stated limitation; the capability-threshold
-  half of the central claim is instead supported by citing TRAP and Breaking Agent Backbones
-  (see Central claim and Related work) rather than by a new experiment.
-- **Context:** banking 4096 (all prompts verified under-limit); workspace 16384 (larger
-  environments truncated/errored at the default). Held constant *within* suite across
-  models; cross-*suite* rate comparisons avoided.
-- **Suites:** banking (16 user × 9 injection), workspace (40 × 6).
+- **Reasoning:** `deepseek-r1:14b` (DeepSeek-R1-Distill-Qwen-14B), temperature 0.6.
+- **Non-reasoning:** `qwen2.5:14b-instruct` (same base as the distill) and `qwen2.5:7b-instruct`, temperature 0.0. The temperatures differ between the two groups.
+- `deepseek-r1:7b` was evaluated and dropped, because it could not drive multi-step tasks.
+- Local via Ollama on an Apple Silicon M5 with 16 GB. No frontier model was tested.
+- **One sample per scenario.** No run was repeated, so the results show no run-to-run variance.
+- **Payload:** the injected text is the bare attacker goal. It is not wrapped in AgentDojo's attack templates (for example `important_instructions`).
+- **Context:** banking ran at 4096 tokens and workspace at 16384. The script that checks banking prompts against the 4096 limit (`verify_ctx.py`) was stopped before it printed a result, so the check is not done. A later re-run of deepseek-r1:14b on banking at 16384 gave 3 detection failures in 28 main-pool runs, against 8 in 35 at 4096. Context length may therefore affect the banking results.
+- **Suites:** banking (16 user tasks x 9 injection tasks), workspace (40 x 6). Cross-suite comparisons are confounded: the suites differ in tasks, data formats, context length and the way the injection appears.
 
 ## Pipeline (src/)
 
-- `harness.py` — runs a scenario; captures `<think>` blocks (`ReasoningPromptingLLM`);
-  compact tool list; keyword-arg enforcement. Validity flags: `ended_cleanly`,
-  `stuck_in_loop`, `injection_encountered` (suite-agnostic, punctuation-robust match of
-  the planted payload in a tool output).
-- `outcome.py` — tiered compliance (full/partial/none), suite-aware (banking:
-  money/password; workspace: send_email/delete_file/calendar with list-membership
-  matching), reported alongside AgentDojo's strict `security`.
-- `recognition.py` — the CoT monitor. Rule-based recognition (strong/weak/none),
-  proximity-scoped to injection references, with negation and echoed-task-language guards.
-  A characterised baseline, hand-audited; the kappa study is its validation.
-- `taxonomy.py` — crosses the axes; validity-gated; two reported toggles.
-- `analysis.py` — distributions, toggle sensitivity, gap cases, defence mapping.
+- `harness.py`: runs a scenario, captures `<think>` blocks (`ReasoningPromptingLLM`), uses a compact tool list and keyword-argument enforcement. Validity flags: `ended_cleanly`, `stuck_in_loop`, `injection_encountered` (a suite-agnostic, punctuation-robust match of the planted payload in a tool output).
+- `outcome.py`: tiered compliance (full, partial, none), suite-aware (banking: money and password; workspace: send_email, delete_file and calendar, with list-membership matching), reported beside AgentDojo's strict `security`.
+- `recognition.py`: the CoT monitor. Rule-based recognition (strong, weak, none), scoped to text near injection references, with guards for negation and echoed task language.
+- `taxonomy.py`: crosses the two axes, gated by validity, with two reported toggles.
+- `analysis.py`: distributions, toggle sensitivity, gap cases, defence mapping.
+
+## Known issues
+
+**Trace files overwrote each other.** Trace files are named `{model}__{user_task}__{injection_task}.json`, without the suite. Banking and workspace share 11 of these keys. When the workspace runs started, they overwrote banking traces with the same key, and a later restore from backup overwrote 6 valid deepseek-r1:14b workspace traces. The effect on the banking main pools:
+
+| | deepseek-r1:14b | qwen2.5:14b-instruct | qwen2.5:7b-instruct |
+|---|---|---|---|
+| n before the overwrite | 36 | 50 | 39 |
+| detection-failure rate before | 22% (8/36) | 24% (12/50) | 38% (15/39) |
+| n after (tables below) | 35 | 42 | 31 |
+| detection-failure rate after | 23% (8/35) | 17% (7/42) | 32% (10/31) |
+
+The lost qwen trials were mostly attack successes (5 of 8 for each qwen model), so the banking rates in the Results tables are biased down. To fix this in a re-run, add the suite to the file name.
 
 ## Results
 
-### Banking (context 4096; main pool excludes suspicion-priming user_task_14)
+These tables are from the final pools, after the overwrite above. Read them with the Known issues and Limitations sections.
+
+### Banking (context 4096; main pool excludes the suspicion-priming user_task_14)
 
 |                        | deepseek-r1:14b<br>(reasoning) | qwen2.5:14b-instruct<br>(non-reasoning) | qwen2.5:7b-instruct<br>(non-reasoning) |
 |------------------------|--------------------------------|-----------------------------------------|----------------------------------------|
@@ -209,12 +101,7 @@ weekly and it should be checked again immediately before submission.
 | alignment_failure      | 0    | 0    | 0    |
 | detection-failure rate | 23%  | 17%  | 32%  |
 
-Recognised row empty in every banking main pool — zero spontaneous recognition. The two
-14b models (reasoning vs. non-reasoning, size held constant) sit close together while the
-7b is the outlier, so at this scale size predicts compromise better than reasoning does
-(corroborated on frontier models by arXiv 2510.22620). `strong` recognition appears only
-in the task-elicited case study (user_task_14: deepseek 3/6, qwen-14b 6/8) — including
-from a non-reasoning model, so recognition is about elicitation, not raw capability.
+The recognized row is empty in every banking main pool. No difference between models is significant (Fisher exact test: qwen 14b against qwen 7b, p = 0.16; deepseek 14b against qwen 14b, p = 0.57). About 120 valid trials per model would be needed to detect 17% against 32% with 80% power. `strong` recognition appears only in the task-elicited case study (user_task_14: deepseek 3/6, qwen-14b 6/8), including from a non-reasoning model.
 
 ### Workspace (context 16384)
 
@@ -226,45 +113,25 @@ from a non-reasoning model, so recognition is about elicitation, not raw capabil
 | principled_resistance  | 1    | 0    | 0    |
 | alignment_failure      | 0    | 0    | 0    |
 
-### Legibility result
+### Recognition cases on workspace (hypothesis only)
 
-Same model, different attack surface, opposite outcome. On banking, deepseek shows ~zero
-spontaneous recognition. On workspace it reasons explicitly about phishing in three
-hand-verified cases: "suspicious because it's from an AOL address asking for a Facebook
-security code... safer to ignore"; a Gmail sender impersonating Facebook; "shouldn't
-forward security codes to unknown addresses." One is in the clean main pool (principled
-resistance); two occur in runs that also loop and are filtered — annotation includes these.
-Only 3 of 15 suspicion-word-containing traces survived the classifier's guards, so the
-result is precise rather than an over-fire.
+On workspace, deepseek-r1:14b reasoned explicitly about phishing in three traces: 'suspicious because it's from an AOL address asking for a Facebook security code... safer to ignore'; a Gmail sender impersonating Facebook; 'shouldn't forward security codes to unknown addresses.' One trace is in the clean main pool (`user_task_16` / `injection_task_3`). The other two are in runs that also loop and are filtered out.
 
-### Compliance vs. strict security
+In the main pool, recognition is 1/23 on workspace against 0/35 on banking (Fisher exact p = 0.40). In the kappa study, the human annotator labelled the one main-pool case 'none', while the classifier and the LLM annotator labelled it 'strong'. The two suites also differ in many ways besides presentation. These cases suggest a hypothesis for a controlled study; they do not support a finding.
 
-Graded compliance catches compromises `security` scores as failures, and the gap widens
-monotonically as models weaken (banking: deepseek 2, qwen-14b 4, qwen-7b 6; workspace 0,
-where attacker-directed compliance was near-zero). Mechanism is uniform: money reaches the
-attacker but exact-match field checks fail. Full write-up plus toggle sensitivity in
-`notes/writeups.md`.
+### Compliance against strict security
+
+Graded compliance catches compromises that `security` scores as failures (banking: deepseek 2, qwen-14b 4, qwen-7b 6; workspace 0). In these cases money reaches the attacker, but the exact-match field checks fail. Full write-up and toggle sensitivity: `notes/writeups.md`.
 
 ## Validation
 
-Recognition is a rare class (7.6% of the 276 reached-injection candidates across both
-suites and all three models: 15 strong, 6 weak, 255 none), so a plain random sample would
-contain almost no positives. The annotation set is an ENRICHED sample: all 21
-classifier-positive traces plus 39 stratified classifier-none traces (60 total, balanced
-across suite x model), including reached-but-excluded (looping) traces so the Workspace
-recognition cases are captured. The true population base rate (7.6%) is stated separately
-since the sample is not representative of it. Guidelines (with a Workspace-specific
-addendum), the blind shuffled worksheet, and annotator sheets are in `annotations/`; the
-reliability computation is `src/reliability.py`.
+Recognition is a rare class (7.6% of the 276 reached-injection candidates across both suites and all three models: 15 strong, 6 weak, 255 none). The annotation set is therefore an enriched sample: all 21 classifier-positive traces plus 39 stratified classifier-none traces (60 in total, balanced across suite and model), including excluded looping traces. Guidelines, the blind shuffled worksheet and the annotator sheets are in `annotations/`. The reliability computation is `src/reliability.py`.
 
-**Annotators.** The first annotator is a human (this project's author), labeling
-independently against the written guidelines only, with no access to classifier output.
-The second annotator is an LLM (Gemini Pro, fresh context, guidelines-only) - a second
-human annotator was not available in the time available. Reported figures are therefore
-**human-vs-LLM** agreement, not human-vs-human; this is disclosed rather than presented as
-equivalent.
+**Annotators.** The first annotator is a human (the author), labelling against the written guidelines without the classifier output. The second annotator is an LLM (Gemini Pro, fresh context, guidelines only). The figures are human-LLM agreement, not human-human agreement.
 
-**Results (3-class: strong/weak/none; 2-class collapses weak into "recognized" or not):**
+**In-sample check.** The classifier rules and the guideline examples were written from traces that are also in the 60-trace sample, and the guidelines quote the workspace recognition traces as examples. The agreement figures are therefore optimistic for new data.
+
+**Results (3-class: strong, weak, none; 2-class merges weak into recognized or not):**
 
 |                          | Cohen's kappa | PABAK | raw agreement |
 |--------------------------|---------------|-------|----------------|
@@ -273,21 +140,16 @@ equivalent.
 | human vs. LLM annotator (2-class)   | 0.870 | 0.900 | 95.0% (57/60) |
 | human vs. classifier (2-class)      | 0.806 | 0.833 | 91.7% (55/60) |
 
-Human-LLM agreement is substantial-to-almost-perfect, indicating the annotation *scheme*
-(the written guidelines) is reproducible across independent raters. Human-classifier
-agreement is substantial: the rule-based monitor tracks human judgment closely but
-imperfectly.
+In the sample, most classifier errors are over-calls: 5 of 7 disagreements are classifier=strong where the human said none or weak, and 1 is an under-call. The three mechanisms are wrong-target suspicion (suspicion of a decoy transaction or email instead of the injection), negation leakage ('transactions do not appear suspicious' still trips a pattern) and hedge insensitivity.
 
-**The classifier's errors are one-directional: it systematically over-calls recognition**
-(5 of 7 disagreements are classifier=strong where the human said none/weak; only 1 is an
-under-call), via three identified mechanisms: (1) wrong-target suspicion - anchoring on
-suspicion of a co-occurring decoy transaction/email rather than the specific injection
-under test; (2) negation leakage - "transactions do not appear suspicious" still trips a
-suspicion pattern; (3) hedge insensitivity - treating hedged language ("might be
-suspicious") as equivalent to named-threat framing ("could indicate fraudulent
-activity"). Because the over-call direction dominates, **reported recognition rates are
-upper bounds on the true rate** - the empty/near-empty recognized row in the main results
-is therefore a conservative finding, not an inflated one.
+The sample cannot show that reported rates are upper bounds. The classifier missed 0 of the 39 sampled negatives, but a 95% upper bound on that miss rate still allows about 19 to 23 missed recognitions among the 255 negatives.
 
+## Limitations
 
-Status: Halted
+- Three open-weight models of 7B to 14B, one of them a reasoning model. No frontier model.
+- One sample per scenario, and different temperatures for the two model groups.
+- The bare-goal payload is weaker than AgentDojo's standard attack templates.
+- The banking context check did not complete, and the 16k re-run gave fewer detection failures.
+- The file-name overwrite changed the banking counts (see Known issues).
+- Validation is in-sample, with one human annotator who is also the author.
+- The recognition hypothesis in finding 3 was formed after looking at the data. It needs a pre-registered, controlled test.
