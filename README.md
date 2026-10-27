@@ -64,6 +64,7 @@ The question links to the CoT-monitorability agenda (Korbak et al., arXiv 2507.1
 - **Payload:** the injected text is the bare attacker goal. It is not wrapped in AgentDojo's attack templates (for example `important_instructions`).
 - **Context:** banking ran at 4096 tokens and workspace at 16384. The script that checks banking prompts against the 4096 limit (`verify_ctx.py`) was stopped before it printed a result, so the check is not done. A later re-run of deepseek-r1:14b on banking at 16384 gave 3 detection failures in 28 main-pool runs, against 8 in 35 at 4096. Context length may therefore affect the banking results.
 - **Suites:** banking (16 user tasks x 9 injection tasks), workspace (40 x 6). Cross-suite comparisons are confounded: the suites differ in tasks, data formats, context length and the way the injection appears.
+- **Traces are not included.** The raw run traces (`data/traces/`) are listed in `.gitignore`, so the tables in this README cannot be recomputed from this repository. The 60 traces used for validation are in `annotations/worksheet.txt`.
 
 ## Pipeline (src/)
 
